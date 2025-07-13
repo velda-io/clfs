@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"velda.io/mtfs/pkg/proto"
 	"velda.io/mtfs/pkg/vfs"
 )
+
+var debug = flag.Bool("debug", false, "Enable debug logging")
 
 type FakeSvc struct {
 }
@@ -37,7 +40,8 @@ type MountOptions func(*fs.Options)
 
 func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
 	svc := &FakeSvc{}
-	root := vfs.NewInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE)
+
+	root := vfs.NewInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
 	option := &fs.Options{
@@ -52,6 +56,7 @@ func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, e
 			MaxWrite:           1024 * 1024,
 			EnableLocks:        true,
 			DirectMountFlags:   syscall.MS_MGC_VAL,
+			Debug:              *debug,
 		},
 	}
 	for _, opt := range options {
@@ -65,10 +70,11 @@ func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, e
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	flag.Parse()
+	if flag.NArg() != 1 {
 		log.Fatalf("Usage: %s <workspace-dir>", os.Args[0])
 	}
-	workspaceDir := os.Args[1]
+	workspaceDir := flag.Arg(0)
 
 	server, err := MountWorkDir(workspaceDir)
 	if err != nil {

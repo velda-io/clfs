@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"context"
+	"syscall"
 	"time"
 
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -75,4 +76,13 @@ func newFileStat(context context.Context, out *fuse.Attr, mode uint32) {
 	out.Owner.Gid = caller.Gid
 	now := time.Now()
 	out.SetTimes(&now, &now, &now)
+}
+
+func DefaultRootStat() *proto.FileStat {
+	return &proto.FileStat{
+		Mode: syscall.S_IFDIR | 0755, // Default root directory permissions
+		Uid:  0,                      // Default UID
+		Gid:  0,                      // Default GID
+		Size: 4096,                   // Default size for root directory
+	}
 }

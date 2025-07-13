@@ -18,23 +18,27 @@ message OperationRequest {
   bytes cookie = 1; // Cookie for the request
   int64 seq_id = 2; // Sequence ID of the request
   oneof operation {
-    // Ping request for testing
-    PingRequest ping = 3;
     // Request to create a directory.
-    MkdirRequest mkdir = 4;
+    MkdirRequest mkdir = 3;
+
+    LookupRequest lookup = 4; // Request to look up a file or directory
+    GetAttrRequest get_attr = 5;  // Request to get file or directory attributes
   }
 }
 
 message OperationResponse {
   // Sequence ID of the request, 0 if it's notification from the server
   int64 seq_id = 1;
+  bytes cookie = 2; // Cookie for the identity of the inode.
   oneof response {
-    // Ping response for testing
-    PingResponse ping = 4;
-
     // Response to a directory creation request.
     MkdirResponse mkdir = 3;
-    ClaimUpdateServerRequest claim_update = 5; // Claim update request
+
+    LookupResponse lookup = 4; // Response to a lookup request
+    GetAttrResponse get_attr = 5;     // Response to a stat request
+
+    // Belows are notifications from the server.
+    ClaimUpdateServerRequest claim_update = 6; // Claim update request
   }
 }
 
@@ -49,12 +53,23 @@ message MkdirResponse {
   FileStat stat = 2;
 }
 
-// Used for unit-tests.
-message PingRequest {
-  string payload = 1; // Payload for the ping request
+message LookupRequest {
+  string name = 1; // Name of the file or directory to look up
 }
-message PingResponse {
-  string payload = 1; // Payload for the ping response
+
+message LookupResponse {
+  // Identifier of the looked-up file or directory.
+  bytes cookie = 1;
+  FileStat stat = 2; // Node information for the looked-up file or directory
+  ClaimStatus claim = 3; // Claim status of the looked-up file or directory
+}
+
+message GetAttrRequest {
+}
+
+message GetAttrResponse {
+  FileStat stat = 1; // Statistics of the file or directory
+  ClaimStatus claim_update = 2;
 }
 
 message ClaimUpdateServerRequest {

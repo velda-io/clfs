@@ -33,13 +33,16 @@ type Inode struct {
 	opMu       sync.Mutex
 	pendingOps []*pendingRequest // Ops waiting for the cookie to be set.
 	syncer     *syncer
+
+	cachedStat *proto.FileStat
 }
 
-func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int) *Inode {
+func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *Inode {
 	n := &Inode{
 		serverProtocol: serverProtocol,
 		cookie:         cookie,
 		syncer:         NewSyncer(),
+		cachedStat:     initialStat,
 	}
 	n.syncer.flags = initialSyncGrants
 	if cookie != nil {
@@ -51,8 +54,47 @@ func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants in
 var _ = (fs.NodeLookuper)((*Inode)(nil))
 
 func (n *Inode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	// TODO: Retrieve the inode from server.
-	return nil, syscall.ENOENT
+	op := n.syncer.StartRead()
+	defer n.syncer.Complete(op)
+	if op.Async() {
+		child := n.GetChild(name)
+		if child == nil {
+			return nil, syscall.ENOENT
+		}
+
+		if ga, ok := child.Operations().(fs.NodeGetattrer); ok {
+			var a fuse.AttrOut
+			errno := ga.Getattr(ctx, nil, &a)
+			if errno == 0 {
+				out.Attr = a.Attr
+			}
+		}
+		return child, fs.OK
+	}
+	response, err := n.syncOperation(ctx, &proto.OperationRequest{
+		Cookie: n.cookie,
+		Operation: &proto.OperationRequest_Lookup{Lookup: &proto.LookupRequest{
+			Name: name,
+		}},
+	})
+	if err != nil {
+		return nil, fs.ToErrno(err)
+	}
+	switch s := response.Response.(type) {
+	case *proto.OperationResponse_Lookup:
+		if s.Lookup.Cookie == nil {
+			return nil, syscall.ENOENT
+		}
+		out.Attr = *AttrFromStatProto(s.Lookup.Stat)
+		node := NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
+		if s.Lookup.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
+			node.handleClaimUpdate(s.Lookup.Claim)
+		}
+		return n.NewInode(ctx, node, fs.StableAttr{Mode: s.Lookup.Stat.Mode}), 0
+	default:
+		log.Printf("Received response with SeqId %d but unknown type: %T, expecting LookupResponse", response.SeqId, s)
+		return nil, syscall.EIO
+	}
 }
 
 var _ = (fs.NodeMkdirer)((*Inode)(nil))
@@ -64,14 +106,16 @@ func (n *Inode) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.E
 		if n.GetChild(name) != nil {
 			return nil, syscall.EEXIST
 		}
+
 		newFileStat(ctx, &out.Attr, mode|syscall.S_IFDIR)
-		node := NewInode(n.serverProtocol, nil, SYNC_EXCLUSIVE_WRITE)
+		stat := StatProtoFromAttr(&out.Attr)
+		node := NewInode(n.serverProtocol, nil, SYNC_EXCLUSIVE_WRITE, stat)
 		n.asyncOperation(
 			ctx,
 			&proto.OperationRequest{
 				Operation: &proto.OperationRequest_Mkdir{Mkdir: &proto.MkdirRequest{
 					Name: name,
-					Stat: emptyFileStatProto(ctx, mode|syscall.S_IFDIR),
+					Stat: stat,
 				}},
 			},
 			func(response *proto.OperationResponse, err error) {
@@ -104,11 +148,41 @@ func (n *Inode) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.E
 		switch s := response.Response.(type) {
 		case *proto.OperationResponse_Mkdir:
 			out.Attr = *AttrFromStatProto(s.Mkdir.Stat)
-			node := NewInode(n.serverProtocol, s.Mkdir.Cookie, SYNC_EXCLUSIVE_WRITE)
+			node := NewInode(n.serverProtocol, s.Mkdir.Cookie, SYNC_EXCLUSIVE_WRITE, s.Mkdir.Stat)
 			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode | syscall.S_IFDIR}), 0
 		default:
+			log.Printf("Received response with SeqId %d but unknown type: %T, expecting MkdirResponse", response.SeqId, s)
 			return nil, syscall.EIO
 		}
+	}
+}
+
+var _ = (fs.NodeGetattrer)((*Inode)(nil))
+
+func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+	op := n.syncer.StartRead()
+	defer n.syncer.Complete(op)
+	if op.Async() {
+		out.Attr = *AttrFromStatProto(n.cachedStat)
+		return fs.OK
+	}
+	response, err := n.syncOperation(ctx, &proto.OperationRequest{
+		Operation: &proto.OperationRequest_GetAttr{GetAttr: &proto.GetAttrRequest{}},
+	})
+	if err != nil {
+		return fs.ToErrno(err)
+	}
+	switch s := response.Response.(type) {
+	case *proto.OperationResponse_GetAttr:
+		out.Attr = *AttrFromStatProto(s.GetAttr.Stat)
+		n.cachedStat = s.GetAttr.Stat
+		if s.GetAttr.ClaimUpdate != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
+			n.handleClaimUpdate(s.GetAttr.ClaimUpdate)
+		}
+		return fs.OK
+	default:
+		log.Printf("Received response with SeqId %d but unknown type: %T, expecting GetAttrResponse", response.SeqId, s)
+		return syscall.EIO
 	}
 }
 
