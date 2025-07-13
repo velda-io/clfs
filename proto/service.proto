@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package mtfs;
+
+import "dirnode.proto";
+
+option go_package = "velda.io/mtfs/pkg/proto";
+
+message OperationRequest {
+  bytes cookie = 1; // Identifier of the owner of the operation
+  int64 seq_id = 2;
+  oneof operation {
+    // Request to create a directory.
+    MkdirRequest mkdir = 3;
+  }
+}
+
+message OperationResponse {
+  int64 seq_id = 1; // Sequence ID of the request
+  int32 flags = 2; // OPERATION_RESPONSE_*
+  oneof response {
+    // Response to a directory creation request.
+    MkdirResponse mkdir = 3;
+  }
+}
+
+message MkdirRequest {
+  string name = 1; // Name of the directory to create
+  FileStat stat = 2;
+}
+
+message MkdirResponse {
+  // Identifier of the created directory.
+  bytes cookie = 1;
+  FileStat stat = 2;
+}
+
+service MtfsService {
+  // Creates a working connection to the MTFS service.
+  rpc Serve(stream OperationRequest) returns (stream OperationResponse) {}
+}

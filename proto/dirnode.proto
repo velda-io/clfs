@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package mtfs;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "velda.io/mtfs/pkg/proto";
+
+message Key {
+  string key = 1; // Key for the file
+}
+
+message FileStat {
+  uint32 uid = 1;  // UID for the file
+  uint32 gid = 2;  // Group identifier for the file
+  uint32 mode = 3; // File mode (permissions)
+  uint64 dev = 4;  // Device ID (for special files)
+  uint64 size = 5; // Size of the file in bytes
+  google.protobuf.Timestamp atime = 6; // Last access time
+  google.protobuf.Timestamp mtime = 7; // Last modification time
+  google.protobuf.Timestamp ctime = 8; // Last status change time
+  // TODO: xattr
+}
+
+message FileNode {
+  FileStat stat = 1; // File statistics
+  oneof content {
+    // Key for the file to reference another file. Stats are ignored. Only for
+    // large files.
+    Key key = 2;
+    bytes data = 3; // Content of the file
+  }
+}
+
+message DirEntry {
+  string name = 1;
+  Key key = 2;
+}
+
+message DirectoryNode {
+  FileStat stat = 1;              // Directory statistics
+  repeated DirEntry children = 2; // List of child nodes, sorted by key.
+}
+
+message SymlinkNode {
+  string target = 1; // Target of the symlink
+}
+
+message Node {
+  oneof node {
+    DirectoryNode directory = 1; // Directory node
+    FileNode file = 2;           // File node
+    SymlinkNode symlink = 3;     // Symlink node
+  }
+}
