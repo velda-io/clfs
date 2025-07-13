@@ -36,6 +36,7 @@ type syncer struct {
 	writerWait   int
 	writerActive bool
 	readers      int
+	asyncOps     int
 }
 
 func NewSyncer() *syncer {
@@ -63,6 +64,9 @@ func (s *syncer) StartWrite() *operation {
 	op := &operation{
 		readonly: false,
 		async:    s.flags&SYNC_EXCLUSIVE_WRITE != 0,
+	}
+	if op.async {
+		s.asyncOps++
 	}
 	return op
 }
@@ -106,7 +110,12 @@ func (s *syncer) CompleteAsync(op *operation) {
 	if !op.async {
 		panic("CompleteAsync called on a non-async operation")
 	}
-	// Currrentl do nothing?
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.asyncOps--
+	if s.asyncOps == 0 {
+		s.cond.Broadcast()
+	}
 }
 
 func (s *syncer) UpgradeClaim(newFlag int) {
@@ -120,7 +129,7 @@ func (s *syncer) UpgradeClaim(newFlag int) {
 	}
 	s.flags |= newFlag
 	// Wait for all operations to complete before upgrading the claim
-	for !s.emptyLocked() && s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 {
+	for (!s.emptyLocked() || s.asyncOps > 0) && s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 {
 		s.cond.Wait()
 	}
 	if s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 {
