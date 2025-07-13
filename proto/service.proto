@@ -6,21 +6,35 @@ import "dirnode.proto";
 
 option go_package = "velda.io/mtfs/pkg/proto";
 
+enum ClaimStatus {
+  CLAIM_STATUS_UNSPECIFIED = 0;             // Unspecified claim status
+  CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED = 1; // Exclusive write access granted
+  CLAIM_STATUS_LOCK_READ_GRANTED = 2;       // Read lock granted
+  CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED = 3; // Write lock revoked
+  CLAIM_STATUS_LOCK_READ_REVOKED = 4;       // Read lock revoked
+}
+
 message OperationRequest {
-  bytes cookie = 1; // Identifier of the owner of the operation
-  int64 seq_id = 2;
+  bytes cookie = 1; // Cookie for the request
+  int64 seq_id = 2; // Sequence ID of the request
   oneof operation {
+    // Ping request for testing
+    PingRequest ping = 3;
     // Request to create a directory.
-    MkdirRequest mkdir = 3;
+    MkdirRequest mkdir = 4;
   }
 }
 
 message OperationResponse {
-  int64 seq_id = 1; // Sequence ID of the request
-  int32 flags = 2; // OPERATION_RESPONSE_*
+  // Sequence ID of the request, 0 if it's notification from the server
+  int64 seq_id = 1;
   oneof response {
+    // Ping response for testing
+    PingResponse ping = 4;
+
     // Response to a directory creation request.
     MkdirResponse mkdir = 3;
+    ClaimUpdateServerRequest claim_update = 5; // Claim update request
   }
 }
 
@@ -33,6 +47,18 @@ message MkdirResponse {
   // Identifier of the created directory.
   bytes cookie = 1;
   FileStat stat = 2;
+}
+
+// Used for unit-tests.
+message PingRequest {
+  string payload = 1; // Payload for the ping request
+}
+message PingResponse {
+  string payload = 1; // Payload for the ping response
+}
+
+message ClaimUpdateServerRequest {
+  ClaimStatus status = 1; // Status of the claim update
 }
 
 service MtfsService {

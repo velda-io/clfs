@@ -9,15 +9,35 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+
+	"velda.io/mtfs/pkg/proto"
+	"velda.io/mtfs/pkg/vfs"
 )
+
+type FakeSvc struct {
+}
+
+func (svc *FakeSvc) EnqueueOperation(request *proto.OperationRequest, callback vfs.OpCallback) int64 {
+	// Fake implementation that just returns a success response
+	go func() {
+		callback(&proto.OperationResponse{}, nil)
+	}()
+	return 1
+}
+
+func (svc *FakeSvc) RegisterServerCallback(cookie []byte, callback vfs.ServerCallback) {
+	// No-op implementation for fake service
+}
+
+func (svc *FakeSvc) UnregisterServerCallback(cookie []byte) {
+	// No-op implementation for fake service
+}
 
 type MountOptions func(*fs.Options)
 
-func MountWorkDir(baseDir, workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
-	root, err := fs.NewLoopbackRoot(baseDir)
-	if err != nil {
-		return nil, err
-	}
+func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
+	svc := &FakeSvc{}
+	root := vfs.NewInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE)
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
 	option := &fs.Options{
@@ -45,17 +65,16 @@ func MountWorkDir(baseDir, workspaceDir string, options ...MountOptions) (*fuse.
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		log.Fatalf("Usage: %s <base-dir> <workspace-dir>", os.Args[0])
+	if len(os.Args) < 2 {
+		log.Fatalf("Usage: %s <workspace-dir>", os.Args[0])
 	}
-	baseDir := os.Args[1]
-	workspaceDir := os.Args[2]
+	workspaceDir := os.Args[1]
 
-	server, err := MountWorkDir(baseDir, workspaceDir)
+	server, err := MountWorkDir(workspaceDir)
 	if err != nil {
 		log.Fatalf("Failed to mount: %v", err)
 	}
-	log.Printf("Mounted %s at %s", baseDir, workspaceDir)
+	log.Printf("Mounted at %s", workspaceDir)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	<-sig

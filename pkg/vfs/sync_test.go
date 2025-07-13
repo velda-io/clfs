@@ -52,12 +52,16 @@ func TestSyncerStartWrite(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(2)
 
+		var op1Completed, op2Completed bool
+		var op1Started, op2Started bool
 		go func() {
 			defer wg.Done()
 			op := s.StartWrite()
-			// Hold the write lock for a short time
+			op1Started = true
+			assert.True(t, !op2Started || op2Completed, "Two writes cannot run concurrently")
 			time.Sleep(50 * time.Millisecond)
 			s.Complete(op)
+			op1Completed = true
 		}()
 
 		go func() {
@@ -65,14 +69,12 @@ func TestSyncerStartWrite(t *testing.T) {
 			// Wait to ensure the first goroutine has started
 			time.Sleep(10 * time.Millisecond)
 
-			// Track timing to verify the second write waits
-			startTime := time.Now()
 			op := s.StartWrite()
-			elapsed := time.Since(startTime)
+			op2Started = true
 
-			// Should wait for at least the sleep duration of the first writer
-			assert.GreaterOrEqual(t, elapsed.Milliseconds(), int64(40))
+			assert.True(t, !op1Started || op1Completed, "Two writes cannot run concurrently")
 			s.Complete(op)
+			op2Completed = true
 		}()
 
 		wg.Wait()
