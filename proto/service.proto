@@ -26,10 +26,18 @@ message OperationRequest {
     MknodRequest mknod = 6;   // Request to create a node (file, symlink, etc.)
     RmdirRequest rmdir = 7;   // Request to remove a directory
     UnlinkRequest unlink = 8; // Request to remove a file
-    SymlinkRequest symlink = 9; // Request to create a symlink
+    SymlinkRequest symlink = 9;    // Request to create a symlink
     ReadlinkRequest readlink = 10; // Request to read a symlink
-    SetAttrRequest set_attr = 11; // Request to set attributes of a file or directory
+    SetAttrRequest set_attr =
+        11; // Request to set attributes of a file or directory
     ScanDirectoryRequest scan_dir = 12;
+
+    // File ops
+    OpenRequest open = 13;     // Request to open a file
+    ReadRequest read = 14;     // Request to read from a file
+    WriteRequest write = 15;   // Request to write to a file
+    CloseRequest close = 16;   // Request to close a file
+    CreateRequest create = 17; // Request to create a file
   }
 }
 
@@ -45,12 +53,19 @@ message OperationResponse {
     LookupResponse lookup = 4;
     GetAttrResponse get_attr = 5;
     MknodResponse mknod = 7;
-    RmdirResponse rmdir = 8;      // Response to remove a directory
-    UnlinkResponse unlink = 9;    // Response to remove a file
-    SymlinkResponse symlink = 10; // Response to create a symlink
+    RmdirResponse rmdir = 8;        // Response to remove a directory
+    UnlinkResponse unlink = 9;      // Response to remove a file
+    SymlinkResponse symlink = 10;   // Response to create a symlink
     ReadlinkResponse readlink = 11; // Response to read a symlink
-    SetAttrResponse set_attr = 12; // Response to set attributes of a file or directory
+    SetAttrResponse set_attr =
+        12; // Response to set attributes of a file or directory
     ScanDirectoryResponse scan_dir = 13; // Response to scan a directory
+
+    OpenResponse open = 14;     // Response to open a file
+    ReadResponse read = 15;     // Response to read from a file
+    WriteResponse write = 16;   // Response to write to a file
+    CloseResponse close = 17;   // Response to close a file
+    CreateResponse create = 18; // Response to create a file
   }
 }
 
@@ -116,8 +131,7 @@ message SymlinkResponse {
   FileStat stat = 2; // Statistics of the created symlink
 }
 
-message ReadlinkRequest {
-}
+message ReadlinkRequest {}
 
 message ReadlinkResponse {
   bytes target = 1; // Target of the symlink
@@ -132,14 +146,62 @@ message SetAttrResponse {
 }
 
 message ScanDirectoryRequest {
-  bytes token = 1; // Token for the directory to scan. Empty for scan from the beginning.
+  bytes token =
+      1; // Token for the directory to scan. Empty for scan from the beginning.
 }
 
 message ScanDirectoryResponse {
   repeated DirEntry entries = 1; // List of directory entries
-  bytes offset_token = 2; // Token for the next offset
+  bytes offset_token = 2;        // Token for the next offset
 }
 
+message CreateRequest {
+  string name = 1;   // Name of the file to create
+  uint32 flags = 2;  // Flags for creating the file
+  FileStat stat = 3; // Statistics for the file
+}
+message CreateResponse {
+  bytes cookie = 1;      // Identifier of the created file
+  bytes file_handle = 2; // File handle for the created file
+  FileStat stat = 3;     // Statistics of the created file
+  ClaimStatus claim = 4; // Claim status of the created file
+}
+
+message OpenRequest {
+  uint32 flags = 2; // Flags for opening the file
+}
+
+message OpenResponse {
+  ClaimStatus claim = 1; // Claim status of the opened file
+  bytes file_handle = 2; // File handle for the opened file
+}
+
+message ReadRequest {
+  bytes file_handle = 1; // File handle for the file to read
+  int64 offset = 2;      // Offset to start reading from
+  uint32 size = 3;       // Size of the data to read
+}
+
+message ReadResponse {
+  bytes data = 1; // Data read from the file
+}
+
+message WriteRequest {
+  bytes file_handle = 1; // File handle for the file to write to
+  int64 offset = 2;      // Offset to start writing at
+  bytes data = 3;        // Data to write to the file
+}
+message WriteResponse {
+  uint32 size = 1; // Number of bytes written
+}
+
+message CloseRequest {
+  bytes file_handle = 1; // File handle for the file to close
+}
+
+message CloseResponse {
+  ClaimStatus claim = 1; // Claim status after closing the file
+}
 message ClaimUpdateServerRequest {
   ClaimStatus status = 1; // Status of the claim update
 }

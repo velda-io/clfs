@@ -166,6 +166,21 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 
 // TODO: xattr
 
+func (n *Inode) doOperation(ctx context.Context, async bool, request *proto.OperationRequest, callback OpCallback) {
+	if !async {
+		completed := make(chan struct{})
+		newCallback := func(response *proto.OperationResponse, err error) {
+			defer close(completed)
+			callback(response, err)
+		}
+		n.asyncOperation(ctx, request, newCallback)
+		<-completed
+		return
+	} else {
+		n.asyncOperation(ctx, request, callback)
+	}
+}
+
 func (n *Inode) asyncOperation(ctx context.Context, request *proto.OperationRequest, callback OpCallback) {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()

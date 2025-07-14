@@ -354,6 +354,80 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 	}
 }
 
+var _ = (fs.NodeCreater)((*DirInode)(nil))
+
+func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
+	op := n.syncer.StartWrite()
+	defer n.syncer.Complete(op)
+	if op.Async() && n.hasFullData {
+		child := n.GetChild(name)
+		if child != nil && flags&syscall.O_EXCL != 0 {
+			return nil, nil, 0, syscall.EEXIST
+		}
+		if child != nil {
+			// TODO: Reopen?
+			return nil, nil, 0, syscall.EEXIST
+		}
+		newFileStat(ctx, &out.Attr, mode)
+		stat := StatProtoFromAttr(&out.Attr)
+		node := NewFileInode(n.serverProtocol, nil, SYNC_EXCLUSIVE_WRITE, stat)
+
+		fh := &fileHandle{
+			handle: nil,
+			flags:  flags,
+		}
+		n.asyncOperation(ctx, &proto.OperationRequest{
+			Operation: &proto.OperationRequest_Create{Create: &proto.CreateRequest{
+				Name:  name,
+				Stat:  stat,
+				Flags: flags,
+			}},
+		}, func(response *proto.OperationResponse, err error) {
+			defer n.syncer.CompleteAsync(op)
+			if err != nil {
+				log.Printf("Async Create failed: %v", err)
+				return
+			}
+			switch s := response.Response.(type) {
+			case *proto.OperationResponse_Create:
+				cookie := s.Create.Cookie
+				node.ResolveCookie(cookie)
+				fh.SetHandle(s.Create.FileHandle)
+			default:
+				log.Printf("Received unexpected response type: %T", s)
+				return
+			}
+		})
+		return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), fh, 0, fs.OK
+	} else {
+		response, err := n.syncOperation(ctx, &proto.OperationRequest{
+			Cookie: n.cookie,
+			Operation: &proto.OperationRequest_Create{Create: &proto.CreateRequest{
+				Name:  name,
+				Stat:  emptyFileStatProto(ctx, mode),
+				Flags: flags,
+			}},
+		})
+		if err != nil {
+			return nil, nil, 0, fs.ToErrno(err)
+		}
+		switch s := response.Response.(type) {
+		case *proto.OperationResponse_Create:
+			out.Attr = *AttrFromStatProto(s.Create.Stat)
+			node := NewFileInode(n.serverProtocol, s.Create.Cookie, 0, s.Create.Stat)
+			node.handleClaimUpdate(s.Create.Claim)
+			fh := &fileHandle{
+				handle: s.Create.FileHandle,
+				flags:  flags,
+			}
+			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), fh, 0, fs.OK
+		default:
+			log.Printf("Received response with SeqId %d but unknown type: %T, expecting CreateResponse", response.SeqId, s)
+			return nil, nil, 0, syscall.EIO
+		}
+	}
+}
+
 var _ = (fs.NodeOpendirHandler)((*DirInode)(nil))
 
 func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
