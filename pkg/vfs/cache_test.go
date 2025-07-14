@@ -2,6 +2,8 @@ package vfs
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCacheInsert(t *testing.T) {
@@ -9,60 +11,32 @@ func TestCacheInsert(t *testing.T) {
 
 	// Insert initial data
 	cache.Insert(10, []byte("hello"))
-	if len(cache.intervals) != 1 {
-		t.Errorf("Expected 1 interval, got %d", len(cache.intervals))
-	}
-	if cache.intervals[0].Offset != 10 {
-		t.Errorf("Expected offset 10, got %d", cache.intervals[0].Offset)
-	}
-	if string(cache.intervals[0].Data) != "hello" {
-		t.Errorf("Expected data 'hello', got '%s'", string(cache.intervals[0].Data))
-	}
+	assert.Equal(t, 1, len(cache.intervals), "Expected 1 interval")
+	assert.Equal(t, int64(10), cache.intervals[0].Offset, "Expected offset 10")
+	assert.Equal(t, "hello", string(cache.intervals[0].Data), "Expected data 'hello'")
 
 	// Insert data that overlaps at the end
 	cache.Insert(13, []byte("world"))
-	if len(cache.intervals) != 1 {
-		t.Errorf("Expected 1 merged interval, got %d", len(cache.intervals))
-	}
-	if cache.intervals[0].Offset != 10 {
-		t.Errorf("Expected offset 10, got %d", cache.intervals[0].Offset)
-	}
-	if string(cache.intervals[0].Data) != "helworld" {
-		t.Errorf("Expected data 'helworld', got '%s'", string(cache.intervals[0].Data))
-	}
+	assert.Equal(t, 1, len(cache.intervals), "Expected 1 merged interval")
+	assert.Equal(t, int64(10), cache.intervals[0].Offset, "Expected offset 10")
+	assert.Equal(t, "helworld", string(cache.intervals[0].Data), "Expected data 'helworld'")
 
 	// Insert data that overlaps at the beginning
 	cache.Insert(5, []byte("super"))
-	if len(cache.intervals) != 1 {
-		t.Errorf("Expected 1 merged interval, got %d", len(cache.intervals))
-	}
-	if cache.intervals[0].Offset != 5 {
-		t.Errorf("Expected offset 5, got %d", cache.intervals[0].Offset)
-	}
-	if string(cache.intervals[0].Data) != "superhelworld" {
-		t.Errorf("Expected data 'superhelworld', got '%s'", string(cache.intervals[0].Data))
-	}
+	assert.Equal(t, 1, len(cache.intervals), "Expected 1 merged interval")
+	assert.Equal(t, int64(5), cache.intervals[0].Offset, "Expected offset 5")
+	assert.Equal(t, "superhelworld", string(cache.intervals[0].Data), "Expected data 'superhelworld'")
 
 	// Insert data that connects but doesn't overlap
 	cache.Insert(18, []byte("!!!"))
-	if len(cache.intervals) != 1 {
-		t.Errorf("Expected 1 merged interval, got %d", len(cache.intervals))
-	}
-	if string(cache.intervals[0].Data) != "superhelworld!!!" {
-		t.Errorf("Expected data 'superhelworld!!!', got '%s'", string(cache.intervals[0].Data))
-	}
+	assert.Equal(t, 1, len(cache.intervals), "Expected 1 merged interval")
+	assert.Equal(t, "superhelworld!!!", string(cache.intervals[0].Data), "Expected data 'superhelworld!!!'")
 
 	// Insert data with a gap
 	cache.Insert(25, []byte("gap"))
-	if len(cache.intervals) != 2 {
-		t.Errorf("Expected 2 intervals, got %d", len(cache.intervals))
-	}
-	if cache.intervals[1].Offset != 25 {
-		t.Errorf("Expected offset 25, got %d", cache.intervals[1].Offset)
-	}
-	if string(cache.intervals[1].Data) != "gap" {
-		t.Errorf("Expected data 'gap', got '%s'", string(cache.intervals[1].Data))
-	}
+	assert.Equal(t, 2, len(cache.intervals), "Expected 2 intervals")
+	assert.Equal(t, int64(25), cache.intervals[1].Offset, "Expected offset 25")
+	assert.Equal(t, "gap", string(cache.intervals[1].Data), "Expected data 'gap'")
 }
 
 func TestCacheRead(t *testing.T) {
@@ -73,47 +47,28 @@ func TestCacheRead(t *testing.T) {
 	cache.Insert(20, []byte("world"))
 
 	// Test reading from a single interval
-	data, err := cache.Read(10, 5)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-	if string(data) != "hello" {
-		t.Errorf("Expected 'hello', got '%s'", string(data))
-	}
+	data := cache.Read(10, 5)
+	assert.Equal(t, "hello", string(data), "Expected 'hello'")
 
 	// Test reading across intervals (should fail due to gap)
-	_, err = cache.Read(10, 15)
-	if err == nil {
-		t.Errorf("Expected error for reading across gap, but got none")
-	}
+	b := cache.Read(10, 15)
+	assert.Equal(t, 5, len(b), "Expected partial read of 5 bytes")
 
 	// Fill the gap
 	cache.Insert(15, []byte("middle"))
 
 	// Now reading across should work
-	data, err = cache.Read(10, 9)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
+	data = cache.Read(10, 9)
 	expected := "hellomidd"
-	if string(data) != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, string(data))
-	}
+	assert.Equal(t, expected, string(data), "Expected 'hellomidd'")
 
 	// Test partial read
-	data, err = cache.Read(12, 5)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-	if string(data) != "llomi" {
-		t.Errorf("Expected 'llomi', got '%s'", string(data))
-	}
+	data = cache.Read(12, 5)
+	assert.Equal(t, "llomi", string(data), "Expected 'llomi'")
 
 	// Test reading outside of cached range
-	_, err = cache.Read(0, 5)
-	if err == nil {
-		t.Errorf("Expected error for reading outside of cache, but got none")
-	}
+	data = cache.Read(0, 5)
+	assert.Nil(t, data, "Expected nil for reading outside of cache")
 }
 
 func TestCacheComplexMerge(t *testing.T) {
@@ -124,9 +79,7 @@ func TestCacheComplexMerge(t *testing.T) {
 	cache.Insert(20, []byte("BBBBB"))
 	cache.Insert(30, []byte("CCCCC"))
 
-	if len(cache.intervals) != 3 {
-		t.Errorf("Expected 3 intervals, got %d", len(cache.intervals))
-	}
+	assert.Equal(t, 3, len(cache.intervals), "Expected 3 intervals")
 
 	// Insert an interval that overlaps with first and second
 	cache.Insert(13, []byte("XXXXX"))
@@ -139,22 +92,8 @@ func TestCacheComplexMerge(t *testing.T) {
 	cache.Insert(25, []byte("ZZZZZ")) // Connect second and third
 
 	// Verify merged content
-	data, err := cache.Read(10, 25)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	// The expected result should match the data with the overlapping/connecting intervals
-	if len(data) != 25 {
-		t.Errorf("Expected data length 25, got %d", len(data))
-	}
-
-	// Check specific segments after overlapping writes
-	// Due to the implementation, the exact contents may vary depending on the order of operations
-	// Just verify we can read across the entire range without errors
-	if len(data) != 25 {
-		t.Errorf("Expected data length 25, got %d", len(data))
-	}
+	data := cache.Read(10, 25)
+	assert.Equal(t, 25, len(data), "Expected data length 25")
 }
 
 func TestCacheClear(t *testing.T) {
@@ -163,13 +102,9 @@ func TestCacheClear(t *testing.T) {
 	cache.Insert(10, []byte("hello"))
 	cache.Insert(20, []byte("world"))
 
-	if len(cache.intervals) != 2 {
-		t.Errorf("Expected 2 intervals, got %d", len(cache.intervals))
-	}
+	assert.Equal(t, 2, len(cache.intervals), "Expected 2 intervals")
 
 	cache.Clear()
 
-	if len(cache.intervals) != 0 {
-		t.Errorf("Expected 0 intervals after clear, got %d", len(cache.intervals))
-	}
+	assert.Equal(t, 0, len(cache.intervals), "Expected 0 intervals after clear")
 }

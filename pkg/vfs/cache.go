@@ -1,7 +1,6 @@
 package vfs
 
 import (
-	"errors"
 	"sort"
 )
 
@@ -29,152 +28,66 @@ func (c *Cache) Insert(offset int64, data []byte) {
 	if len(data) == 0 {
 		return
 	}
-
-	// Calculate the end offset of the new data
-	newStart := offset
-	newEnd := offset + int64(len(data))
-
-	// If no intervals exist, simply add the new one
 	if len(c.intervals) == 0 {
-		c.intervals = append(c.intervals, Interval{
-			Offset: offset,
-			Data:   append([]byte{}, data...),
-		})
+		c.intervals = append(c.intervals, Interval{Offset: offset, Data: data})
 		return
 	}
 
-	// Find all intervals that overlap or connect with the new data
-	overlapIndices := []int{}
-	var minStart int64 = newStart
-	var maxEnd int64 = newEnd
-
-	for i, interval := range c.intervals {
-		intervalStart := interval.Offset
-		intervalEnd := interval.Offset + int64(len(interval.Data))
-
-		// Check for overlap or connection (adjacent intervals are considered connected)
-		if newEnd >= intervalStart && newStart <= intervalEnd {
-			overlapIndices = append(overlapIndices, i)
-
-			// Update boundaries of the merged interval
-			if intervalStart < minStart {
-				minStart = intervalStart
-			}
-			if intervalEnd > maxEnd {
-				maxEnd = intervalEnd
-			}
-		}
-	}
-
-	// If no overlaps, insert the new interval at the correct position
-	if len(overlapIndices) == 0 {
-		newInterval := Interval{
-			Offset: offset,
-			Data:   append([]byte{}, data...),
-		}
-
-		// Find insertion point to maintain sorted order
-		insertPos := 0
-		for insertPos < len(c.intervals) && c.intervals[insertPos].Offset < offset {
-			insertPos++
-		}
-
-		// Insert the new interval
-		c.intervals = append(c.intervals[:insertPos], append([]Interval{newInterval}, c.intervals[insertPos:]...)...)
-		return
-	}
-
-	// Create a new merged interval
-	mergedLength := int(maxEnd - minStart)
-	mergedData := make([]byte, mergedLength)
-
-	// Fill in data from overlapping intervals
-	for _, idx := range overlapIndices {
-		interval := c.intervals[idx]
-		copyOffset := int(interval.Offset - minStart)
-		copy(mergedData[copyOffset:], interval.Data)
-	}
-
-	// Add the new data (potentially overwriting some existing data)
-	copyOffset := int(offset - minStart)
-	copy(mergedData[copyOffset:], data)
-
-	// Create the merged interval
-	mergedInterval := Interval{
-		Offset: minStart,
-		Data:   mergedData,
-	}
-
-	// Remove all overlapped intervals (in reverse order to maintain indices)
-	sort.Slice(overlapIndices, func(i, j int) bool {
-		return overlapIndices[i] > overlapIndices[j]
+	mergeBegin := sort.Search(len(c.intervals), func(i int) bool {
+		return c.intervals[i].Offset+int64(len(c.intervals[i].Data)) >= offset
+	})
+	mergeEnd := sort.Search(len(c.intervals), func(i int) bool {
+		return c.intervals[i].Offset > offset+int64(len(data))
 	})
 
-	for _, idx := range overlapIndices {
-		c.intervals = append(c.intervals[:idx], c.intervals[idx+1:]...)
-	}
-
-	// Insert the merged interval at the correct position
-	insertPos := 0
-	for insertPos < len(c.intervals) && c.intervals[insertPos].Offset < minStart {
-		insertPos++
-	}
-
-	if insertPos >= len(c.intervals) {
-		c.intervals = append(c.intervals, mergedInterval)
+	// Replacing [mergeBegin, mergeEnd) with the new interval
+	var newData []byte
+	newOffset := offset
+	if mergeBegin < len(c.intervals) && c.intervals[mergeBegin].Offset < offset {
+		newOffset = c.intervals[mergeBegin].Offset
+		newData = append(newData, c.intervals[mergeBegin].Data[:offset-c.intervals[mergeBegin].Offset]...)
+		newData = append(newData, data...)
 	} else {
-		c.intervals = append(c.intervals[:insertPos], append([]Interval{mergedInterval}, c.intervals[insertPos:]...)...)
+		newData = data[:]
+	}
+	if mergeEnd > 0 && c.intervals[mergeEnd-1].Offset+int64(len(c.intervals[mergeEnd-1].Data)) > offset+int64(len(data)) {
+		newData = append(newData, c.intervals[mergeEnd-1].Data[offset+int64(len(data))-c.intervals[mergeEnd-1].Offset:]...)
+	}
+	if mergeBegin == mergeEnd {
+		c.intervals = append(c.intervals, Interval{})
+	}
+	if mergeEnd != mergeBegin+1 {
+		copy(c.intervals[mergeBegin+1:], c.intervals[mergeEnd:])
+	}
+	c.intervals[mergeBegin] = Interval{
+		Offset: newOffset,
+		Data:   newData,
+	}
+	if mergeEnd > mergeBegin {
+		c.intervals = c.intervals[:len(c.intervals)-(mergeEnd-mergeBegin-1)]
 	}
 }
 
 // Read retrieves data from the cache starting at the specified offset
 // with the specified length
-func (c *Cache) Read(offset int64, length int) ([]byte, error) {
+func (c *Cache) Read(offset int64, length int) []byte {
 	if length <= 0 {
-		return nil, errors.New("invalid read length")
+		return nil
 	}
 
-	result := make([]byte, length)
-	resultFilled := make([]bool, length)
-
-	// Find all intervals that overlap with the requested range
-	readEnd := offset + int64(length)
-
-	for _, interval := range c.intervals {
-		intervalStart := interval.Offset
-		intervalEnd := intervalStart + int64(len(interval.Data))
-
-		// Skip if no overlap
-		if readEnd <= intervalStart || offset >= intervalEnd {
-			continue
-		}
-
-		// Calculate overlap region
-		overlapStart := max(offset, intervalStart)
-		overlapEnd := min(readEnd, intervalEnd)
-
-		// Copy data from interval to result
-		resultStartIdx := int(overlapStart - offset)
-		sourceStartIdx := int(overlapStart - intervalStart)
-		copyLength := int(overlapEnd - overlapStart)
-
-		copy(result[resultStartIdx:resultStartIdx+copyLength],
-			interval.Data[sourceStartIdx:sourceStartIdx+copyLength])
-
-		// Mark the filled portions
-		for i := 0; i < copyLength; i++ {
-			resultFilled[resultStartIdx+i] = true
-		}
+	ind := sort.Search(len(c.intervals), func(i int) bool {
+		return c.intervals[i].Offset+int64(len(c.intervals[i].Data)) > offset
+	})
+	if ind >= len(c.intervals) {
+		return nil
+	}
+	if c.intervals[ind].Offset > offset {
+		return nil
 	}
 
-	// Check if all bytes were filled
-	for _, filled := range resultFilled {
-		if !filled {
-			return nil, errors.New("cache miss")
-		}
-	}
-
-	return result, nil
+	start := offset - c.intervals[ind].Offset
+	hit_size := min(int64(length), int64(c.intervals[ind].Offset+int64(len(c.intervals[ind].Data))-offset))
+	return c.intervals[ind].Data[start : start+hit_size]
 }
 
 // Clear removes all intervals from the cache
