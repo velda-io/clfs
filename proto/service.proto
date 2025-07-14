@@ -21,8 +21,14 @@ message OperationRequest {
     // Request to create a directory.
     MkdirRequest mkdir = 3;
 
-    LookupRequest lookup = 4; // Request to look up a file or directory
-    GetAttrRequest get_attr = 5;  // Request to get file or directory attributes
+    LookupRequest lookup = 4;    // Request to look up a file or directory
+    GetAttrRequest get_attr = 5; // Request to get file or directory attributes
+    MknodRequest mknod = 6;   // Request to create a node (file, symlink, etc.)
+    RmdirRequest rmdir = 7;   // Request to remove a directory
+    UnlinkRequest unlink = 8; // Request to remove a file
+    SymlinkRequest symlink = 9; // Request to create a symlink
+    ReadlinkRequest readlink = 10; // Request to read a symlink
+    SetAttrRequest set_attr = 11; // Request to set attributes of a file or directory
   }
 }
 
@@ -31,14 +37,18 @@ message OperationResponse {
   int64 seq_id = 1;
   bytes cookie = 2; // Cookie for the identity of the inode.
   oneof response {
-    // Response to a directory creation request.
-    MkdirResponse mkdir = 3;
-
-    LookupResponse lookup = 4; // Response to a lookup request
-    GetAttrResponse get_attr = 5;     // Response to a stat request
-
-    // Belows are notifications from the server.
+    // Notifications from the server.
     ClaimUpdateServerRequest claim_update = 6; // Claim update request
+
+    MkdirResponse mkdir = 3;
+    LookupResponse lookup = 4;
+    GetAttrResponse get_attr = 5;
+    MknodResponse mknod = 7;
+    RmdirResponse rmdir = 8;      // Response to remove a directory
+    UnlinkResponse unlink = 9;    // Response to remove a file
+    SymlinkResponse symlink = 10; // Response to create a symlink
+    ReadlinkResponse readlink = 11; // Response to read a symlink
+    SetAttrResponse set_attr = 12; // Response to set attributes of a file or directory
   }
 }
 
@@ -60,16 +70,63 @@ message LookupRequest {
 message LookupResponse {
   // Identifier of the looked-up file or directory.
   bytes cookie = 1;
-  FileStat stat = 2; // Node information for the looked-up file or directory
+  FileStat stat = 2;     // Node information for the looked-up file or directory
   ClaimStatus claim = 3; // Claim status of the looked-up file or directory
 }
 
-message GetAttrRequest {
-}
+message GetAttrRequest {}
 
 message GetAttrResponse {
   FileStat stat = 1; // Statistics of the file or directory
   ClaimStatus claim_update = 2;
+}
+
+message MknodRequest {
+  string name = 1;   // Name of the node to create
+  FileStat stat = 2; // Statistics for the node
+}
+
+message MknodResponse {
+  bytes cookie = 1;  // Identifier of the created node
+  FileStat stat = 2; // Statistics of the created node
+}
+
+message RmdirRequest {
+  string name = 1; // Name of the directory to remove
+}
+
+message RmdirResponse {}
+
+message UnlinkRequest {
+  string name = 1; // Name of the file to remove
+}
+
+message UnlinkResponse {}
+
+message SymlinkRequest {
+  string name = 1;   // Name of the symlink to create
+  string target = 2; // Target of the symlink
+  FileStat stat = 3; // Statistics for the symlink
+}
+
+message SymlinkResponse {
+  bytes cookie = 1;  // Identifier of the created symlink
+  FileStat stat = 2; // Statistics of the created symlink
+}
+
+message ReadlinkRequest {
+}
+
+message ReadlinkResponse {
+  bytes target = 1; // Target of the symlink
+}
+
+message SetAttrRequest {
+  FileStat stat = 1; // New statistics for the file or directory
+}
+
+message SetAttrResponse {
+  FileStat stat = 1; // Updated statistics of the file or directory
 }
 
 message ClaimUpdateServerRequest {
