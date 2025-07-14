@@ -12,11 +12,15 @@ import (
 
 type DirInode struct {
 	Inode
+	hasFullData bool
 }
 
 func NewDirInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *DirInode {
 	n := &DirInode{}
 	n.init(serverProtocol, cookie, initialSyncGrants, initialStat)
+	if initialSyncGrants != 0 {
+		n.hasFullData = true
+	}
 	return n
 }
 
@@ -25,8 +29,11 @@ var _ = (fs.NodeLookuper)((*DirInode)(nil))
 func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	op := n.syncer.StartRead()
 	defer n.syncer.Complete(op)
-	if op.Async() {
+	for op.Async() {
 		child := n.GetChild(name)
+		if child == nil && !n.hasFullData {
+			break
+		}
 		if child == nil {
 			return nil, syscall.ENOENT
 		}
@@ -71,7 +78,7 @@ var _ = (fs.NodeMkdirer)((*DirInode)(nil))
 func (n *DirInode) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	op := n.syncer.StartWrite()
 	defer n.syncer.Complete(op)
-	if op.Async() {
+	if op.Async() && n.hasFullData {
 		if n.GetChild(name) != nil {
 			return nil, syscall.EEXIST
 		}
@@ -131,7 +138,7 @@ var _ = (fs.NodeMknoder)((*DirInode)(nil))
 func (n *DirInode) Mknod(ctx context.Context, name string, mode uint32, dev uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	op := n.syncer.StartWrite()
 	defer n.syncer.Complete(op)
-	if op.Async() {
+	if op.Async() && n.hasFullData {
 		if n.GetChild(name) != nil {
 			return nil, syscall.EEXIST
 		}
@@ -187,8 +194,12 @@ var _ = (fs.NodeRmdirer)((*DirInode)(nil))
 func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 	op := n.syncer.StartWrite()
 	defer n.syncer.Complete(op)
-	if op.Async() {
+	for op.Async() {
 		child := n.GetChild(name)
+		if child == nil && !n.hasFullData {
+			// Sync
+			break
+		}
 		if child == nil {
 			return syscall.ENOENT
 		}
@@ -222,18 +233,17 @@ func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 		})
 		n.RmChild(name)
 		return fs.OK
-	} else {
-		_, err := n.syncOperation(ctx, &proto.OperationRequest{
-			Operation: &proto.OperationRequest_Rmdir{Rmdir: &proto.RmdirRequest{
-				Name: name,
-			}},
-		})
-		if err != nil {
-			return fs.ToErrno(err)
-		}
-		n.RmChild(name)
-		return fs.OK
 	}
+	_, err := n.syncOperation(ctx, &proto.OperationRequest{
+		Operation: &proto.OperationRequest_Rmdir{Rmdir: &proto.RmdirRequest{
+			Name: name,
+		}},
+	})
+	if err != nil {
+		return fs.ToErrno(err)
+	}
+	n.RmChild(name)
+	return fs.OK
 }
 
 var _ = (fs.NodeUnlinker)((*DirInode)(nil))
@@ -243,6 +253,10 @@ func (n *DirInode) Unlink(ctx context.Context, name string) syscall.Errno {
 	defer n.syncer.Complete(op)
 	if op.Async() {
 		child := n.GetChild(name)
+		if child == nil && !n.hasFullData {
+			// Sync
+			return syscall.ENOENT
+		}
 		if child == nil {
 			return syscall.ENOENT
 		}
@@ -283,8 +297,13 @@ var _ = (fs.NodeSymlinker)((*DirInode)(nil))
 func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
 	op := n.syncer.StartWrite()
 	defer n.syncer.Complete(op)
-	if op.Async() {
-		if n.GetChild(linkName) != nil {
+	for op.Async() {
+		child := n.GetChild(linkName)
+		if child == nil && !n.hasFullData {
+			// Sync
+			break
+		}
+		if child != nil {
 			return nil, syscall.EEXIST
 		}
 		newFileStat(ctx, &out.Attr, syscall.S_IFLNK|0777) // Symlink mode
@@ -312,26 +331,97 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 			}
 		})
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFLNK | 0777}), 0
-	} else {
-		// TODO: Owner of symlink
-		response, err := n.syncOperation(ctx, &proto.OperationRequest{
-			Cookie: n.cookie,
-			Operation: &proto.OperationRequest_Symlink{Symlink: &proto.SymlinkRequest{
-				Name:   linkName,
-				Target: pointedTo,
+	}
+	// TODO: Owner of symlink
+	response, err := n.syncOperation(ctx, &proto.OperationRequest{
+		Cookie: n.cookie,
+		Operation: &proto.OperationRequest_Symlink{Symlink: &proto.SymlinkRequest{
+			Name:   linkName,
+			Target: pointedTo,
+		}},
+	})
+	if err != nil {
+		return nil, fs.ToErrno(err)
+	}
+	switch s := response.Response.(type) {
+	case *proto.OperationResponse_Symlink:
+		out.Attr = *AttrFromStatProto(s.Symlink.Stat)
+		node := NewLinkNode(n.serverProtocol, s.Symlink.Cookie, 0, []byte(pointedTo), s.Symlink.Stat)
+		return n.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFLNK | 0777}), 0
+	default:
+		log.Printf("Received response with SeqId %d but unknown type: %T, expecting SymlinkResponse", response.SeqId, s)
+		return nil, syscall.EIO
+	}
+}
+
+var _ = (fs.NodeOpendirHandler)((*DirInode)(nil))
+
+func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
+	// TODO: Exclusive read?
+	op := n.syncer.StartRead()
+	if op.Async() && n.hasFullData {
+		defer n.syncer.Complete(op)
+		allChildren := n.Children()
+		list := make([]fuse.DirEntry, 0, len(allChildren))
+		for name, child := range allChildren {
+			list = append(list, fuse.DirEntry{
+				Ino:  uint64(child.StableAttr().Ino),
+				Name: name,
+				Mode: child.Mode(),
+				Off:  0, // Offset is not used in this context
+			})
+		}
+		return fs.NewListDirStream(list), 0, 0
+	}
+	return &DirStream{inode: n, op: op}, 0, 0
+}
+
+type DirStream struct {
+	inode       *DirInode
+	offsetToken []byte // Token for the directory scan
+	op          *operation
+	returned    int
+	fetched     []*proto.DirEntry // Last fetched directory entries
+}
+
+var _ = (fs.FileReaddirenter)((*DirStream)(nil))
+
+func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Errno) {
+	for s.returned >= len(s.fetched) && s.op != nil {
+		response, err := s.inode.syncOperation(ctx, &proto.OperationRequest{
+			Cookie: s.inode.cookie,
+			Operation: &proto.OperationRequest_ScanDir{ScanDir: &proto.ScanDirectoryRequest{
+				Token: s.offsetToken,
 			}},
 		})
 		if err != nil {
 			return nil, fs.ToErrno(err)
 		}
-		switch s := response.Response.(type) {
-		case *proto.OperationResponse_Symlink:
-			out.Attr = *AttrFromStatProto(s.Symlink.Stat)
-			node := NewInode(n.serverProtocol, s.Symlink.Cookie, 0, s.Symlink.Stat)
-			return n.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFLNK | 0777}), 0
+		switch resp := response.Response.(type) {
+		case *proto.OperationResponse_ScanDir:
+			s.fetched = append(s.fetched, resp.ScanDir.Entries...)
+			s.offsetToken = resp.ScanDir.OffsetToken
+			// TODO: Set the node to have full data.
+			if s.offsetToken == nil {
+				s.inode.syncer.Complete(s.op)
+				s.op = nil
+			}
 		default:
-			log.Printf("Received response with SeqId %d but unknown type: %T, expecting SymlinkResponse", response.SeqId, s)
+			log.Printf("Received unexpected response type: %T", resp)
 			return nil, syscall.EIO
 		}
 	}
+	if s.returned >= len(s.fetched) {
+		return nil, fs.OK // No more entries to return
+	}
+	entry := s.fetched[s.returned]
+	s.returned++
+
+	out := &fuse.DirEntry{
+		Ino:  uint64(entry.Inode),
+		Name: entry.Name,
+		Mode: entry.Type,
+		Off:  entry.Offset,
+	}
+	return out, fs.OK
 }

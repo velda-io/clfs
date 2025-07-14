@@ -29,6 +29,7 @@ message OperationRequest {
     SymlinkRequest symlink = 9; // Request to create a symlink
     ReadlinkRequest readlink = 10; // Request to read a symlink
     SetAttrRequest set_attr = 11; // Request to set attributes of a file or directory
+    ScanDirectoryRequest scan_dir = 12;
   }
 }
 
@@ -49,6 +50,7 @@ message OperationResponse {
     SymlinkResponse symlink = 10; // Response to create a symlink
     ReadlinkResponse readlink = 11; // Response to read a symlink
     SetAttrResponse set_attr = 12; // Response to set attributes of a file or directory
+    ScanDirectoryResponse scan_dir = 13; // Response to scan a directory
   }
 }
 
@@ -127,6 +129,15 @@ message SetAttrRequest {
 
 message SetAttrResponse {
   FileStat stat = 1; // Updated statistics of the file or directory
+}
+
+message ScanDirectoryRequest {
+  bytes token = 1; // Token for the directory to scan. Empty for scan from the beginning.
+}
+
+message ScanDirectoryResponse {
+  repeated DirEntry entries = 1; // List of directory entries
+  bytes offset_token = 2; // Token for the next offset
 }
 
 message ClaimUpdateServerRequest {

@@ -11,15 +11,25 @@ message Key {
 }
 
 message FileStat {
-  uint32 uid = 1;  // UID for the file
-  uint32 gid = 2;  // Group identifier for the file
-  uint32 mode = 3; // File mode (permissions)
-  uint64 dev = 4;  // Device ID (for special files)
-  uint64 size = 5; // Size of the file in bytes
-  google.protobuf.Timestamp atime = 6; // Last access time
-  google.protobuf.Timestamp mtime = 7; // Last modification time
-  google.protobuf.Timestamp ctime = 8; // Last status change time
+  uint32 valid = 1;
+  uint32 uid = 2;
+  uint32 gid = 3;
+  uint32 mode = 4;
+  uint64 dev = 5;
+  uint64 size = 6;
+  uint64 inode = 7;
+  google.protobuf.Timestamp atime = 8;
+  google.protobuf.Timestamp mtime = 9;
+  google.protobuf.Timestamp ctime = 10;
   // TODO: xattr
+}
+
+message DirEntry {
+  string name = 1;
+  bytes cookie = 2;
+  uint32 type = 3;
+  uint64 inode = 4;
+  uint64 offset = 5;
 }
 
 message FileNode {
@@ -32,14 +42,17 @@ message FileNode {
   }
 }
 
-message DirEntry {
+message PersistedDirEntry {
   string name = 1;
   Key key = 2;
 }
 
 message DirectoryNode {
-  FileStat stat = 1;              // Directory statistics
-  repeated DirEntry children = 2; // List of child nodes, sorted by key.
+  // Directory statistics
+  FileStat stat = 1;
+
+  // List of child nodes, sorted by key.
+  repeated PersistedDirEntry children = 2;
 }
 
 message SymlinkNode {

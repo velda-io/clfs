@@ -41,7 +41,7 @@ type MountOptions func(*fs.Options)
 func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
 	svc := &FakeSvc{}
 
-	root := vfs.NewInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE, vfs.DefaultRootStat())
+	root := vfs.NewDirInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
 	option := &fs.Options{
