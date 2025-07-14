@@ -29,6 +29,7 @@ func (c *Cache) Insert(offset int64, data []byte) {
 		return
 	}
 	if len(c.intervals) == 0 {
+		data := append([]byte{}, data...) // Copy data to avoid aliasing
 		c.intervals = append(c.intervals, Interval{Offset: offset, Data: data})
 		return
 	}
@@ -46,10 +47,8 @@ func (c *Cache) Insert(offset int64, data []byte) {
 	if mergeBegin < len(c.intervals) && c.intervals[mergeBegin].Offset < offset {
 		newOffset = c.intervals[mergeBegin].Offset
 		newData = append(newData, c.intervals[mergeBegin].Data[:offset-c.intervals[mergeBegin].Offset]...)
-		newData = append(newData, data...)
-	} else {
-		newData = data[:]
 	}
+	newData = append(newData, data...)
 	if mergeEnd > 0 && c.intervals[mergeEnd-1].Offset+int64(len(c.intervals[mergeEnd-1].Data)) > offset+int64(len(data)) {
 		newData = append(newData, c.intervals[mergeEnd-1].Data[offset+int64(len(data))-c.intervals[mergeEnd-1].Offset:]...)
 	}
