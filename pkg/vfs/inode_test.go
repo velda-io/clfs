@@ -91,7 +91,7 @@ func TestMkdirAsyncRequest(t *testing.T) {
 	mockServer.On("RegisterServerCallback", mock.Anything, mock.Anything).Return()
 
 	// Create parent inode with SYNC_EXCLUSIVE_WRITE flag (async mode)
-	inode := NewInode(mockServer, cookie, SYNC_EXCLUSIVE_WRITE, DefaultRootStat())
+	inode := NewDirInode(mockServer, cookie, SYNC_EXCLUSIVE_WRITE, DefaultRootStat())
 
 	// Define new directory cookie
 	newDirCookie := []byte("new-dir-cookie")
@@ -133,7 +133,7 @@ func TestMkdirAsyncRequest(t *testing.T) {
 	close(asyncComplete)
 
 	<-asyncCallbackComplete
-	child := inode.GetChild("testdir").Operations().(*Inode)
+	child := inode.GetChild("testdir").Operations().(*DirInode)
 	assert.NotNil(t, child, "Expected child inode to be created")
 	assert.Equal(t, child.cookie, newDirCookie)
 
@@ -151,7 +151,7 @@ func TestMkdirSyncRequest(t *testing.T) {
 	mockServer.On("RegisterServerCallback", mock.Anything, mock.Anything).Return()
 
 	// Create parent inode with no sync flags (sync mode)
-	inode := NewInode(mockServer, cookie, 0, DefaultRootStat())
+	inode := NewDirInode(mockServer, cookie, 0, DefaultRootStat())
 
 	// Define new directory cookie
 	newDirCookie := []byte("new-dir-cookie")
@@ -238,7 +238,7 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 	// Mock will track but not enforce the RegisterServerCallback call
 	mockServer.On("RegisterServerCallback", mock.Anything, mock.Anything).Times(3).Return()
 
-	inode := NewInode(mockServer, parentCookie, SYNC_EXCLUSIVE_WRITE, DefaultRootStat())
+	inode := NewDirInode(mockServer, parentCookie, SYNC_EXCLUSIVE_WRITE, DefaultRootStat())
 
 	asyncComplete := make(chan struct{})
 	allComplete := make(chan struct{})
@@ -303,7 +303,7 @@ func TestMkdirOperationError(t *testing.T) {
 	mockServer.On("RegisterServerCallback", mock.Anything, mock.Anything).Return()
 
 	// Create inode
-	inode := NewInode(mockServer, cookie, 0, DefaultRootStat())
+	inode := NewDirInode(mockServer, cookie, 0, DefaultRootStat())
 
 	// Set up the EnqueueOperation to return an error
 	mockServer.On("EnqueueOperation", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
