@@ -62,6 +62,7 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 			return nil, syscall.ENOENT
 		}
 		out.Attr = *AttrFromStatProto(s.Lookup.Stat)
+
 		node := NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
 		if s.Lookup.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
 			node.handleClaimUpdate(s.Lookup.Claim)
@@ -243,6 +244,12 @@ func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 		return fs.ToErrno(err)
 	}
 	n.RmChild(name)
+	return fs.OK
+}
+
+var _ = (fs.NodeRenamer)((*DirInode)(nil))
+
+func (n *DirInode) Rename(ctx context.Context, oldName string, newDir fs.InodeEmbedder, newName string, flags uint32) syscall.Errno {
 	return fs.OK
 }
 
@@ -492,7 +499,7 @@ func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Err
 	s.returned++
 
 	out := &fuse.DirEntry{
-		Ino:  uint64(entry.Inode),
+		//Ino:  uint64(entry.Inode),
 		Name: entry.Name,
 		Mode: entry.Type,
 		Off:  entry.Offset,

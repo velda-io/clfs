@@ -26,6 +26,7 @@ var _ = (fs.NodeOpener)((*FileInode)(nil))
 var _ = (fs.NodeReader)((*FileInode)(nil))
 var _ = (fs.NodeWriter)((*FileInode)(nil))
 var _ = (fs.NodeFlusher)((*FileInode)(nil))
+var _ = (fs.NodeFsyncer)((*FileInode)(nil))
 var _ = (fs.NodeReleaser)((*FileInode)(nil))
 
 func (n *FileInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
@@ -69,8 +70,8 @@ func (n *FileInode) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off
 	defer n.syncer.Complete(op)
 
 	if op.Async() {
-		r, err := n.cache.Read(offset, len(dest))
-		if len(r) > 0 && err == nil {
+		r := n.cache.Read(offset, len(dest))
+		if len(r) > 0 {
 			return fuse.ReadResultData(r), fs.OK
 		}
 	}
@@ -105,6 +106,10 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 	if op.Async() {
 		n.cache.Insert(offset, data)
 	}
+	newSize := uint64(offset + int64(len(data)))
+	if n.cachedStat.Size < newSize {
+		n.cachedStat.Size = newSize
+	}
 	// Always write-ahead
 	lfh := fh.(*fileHandle)
 	lfh.Wait.Add(1)
@@ -133,6 +138,7 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 }
 
 func (n *FileInode) Flush(ctx context.Context, fh fs.FileHandle) syscall.Errno {
+	return fs.OK
 	lfh := fh.(*fileHandle)
 	lfh.Wait.Wait() // Wait for any pending writes to complete
 	if lfh.writeErr != nil {
@@ -142,7 +148,13 @@ func (n *FileInode) Flush(ctx context.Context, fh fs.FileHandle) syscall.Errno {
 	return fs.OK
 }
 
+func (n *FileInode) Fsync(ctx context.Context, fh fs.FileHandle, flags uint32) syscall.Errno {
+	return fs.OK
+}
+
 func (n *FileInode) Release(ctx context.Context, fh fs.FileHandle) syscall.Errno {
+	// TODO: Revert this.
+	return fs.OK
 	lfh := fh.(*fileHandle)
 	if lfh.handle == nil {
 		return fs.OK // Nothing to release

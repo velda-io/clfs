@@ -38,12 +38,6 @@ type Inode struct {
 	cachedStat *proto.FileStat
 }
 
-func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *Inode {
-	n := &Inode{}
-	n.init(serverProtocol, cookie, initialSyncGrants, initialStat)
-	return n
-}
-
 func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) {
 	n.serverProtocol = serverProtocol
 	n.cookie = cookie
