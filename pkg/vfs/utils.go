@@ -56,10 +56,11 @@ func emptyFileStatProto(context context.Context, mode uint32) *proto.FileStat {
 		caller = &fuse.Caller{}
 	}
 	return &proto.FileStat{
-		Mode: mode,
-		Uid:  caller.Uid,
-		Gid:  caller.Gid,
-		Size: 0,
+		Valid: fuse.FATTR_MODE | fuse.FATTR_UID | fuse.FATTR_GID | fuse.FATTR_SIZE,
+		Mode:  mode,
+		Uid:   caller.Uid,
+		Gid:   caller.Gid,
+		Size:  0,
 	}
 }
 
