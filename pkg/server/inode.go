@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -255,7 +254,7 @@ func (n *ServerNode) Mkdir(s *session, req *proto.MkdirRequest) (*proto.Operatio
 func (n *ServerNode) Rmdir(s *session, req *proto.RmdirRequest) (*proto.OperationResponse, error) {
 	err := unix.Unlinkat(n.fd, req.Name, unix.AT_REMOVEDIR)
 	if err != nil {
-		log.Printf("rmdir failed: %v", err)
+		debugf("rmdir failed: %v", err)
 		return nil, err
 	}
 	return &proto.OperationResponse{
@@ -268,7 +267,7 @@ func (n *ServerNode) Rmdir(s *session, req *proto.RmdirRequest) (*proto.Operatio
 func (n *ServerNode) Unlink(s *session, req *proto.UnlinkRequest) (*proto.OperationResponse, error) {
 	err := unix.Unlinkat(n.fd, req.Name, 0)
 	if err != nil {
-		log.Printf("unlink failed: %v", err)
+		debugf("unlink failed: %v", err)
 		return nil, err
 	}
 	return &proto.OperationResponse{
@@ -281,12 +280,12 @@ func (n *ServerNode) Unlink(s *session, req *proto.UnlinkRequest) (*proto.Operat
 func (n *ServerNode) Symlink(s *session, req *proto.SymlinkRequest) (*proto.OperationResponse, error) {
 	err := unix.Symlinkat(req.Target, n.fd, req.Name)
 	if err != nil {
-		log.Printf("symlink failed: %v", err)
+		debugf("symlink failed: %v", err)
 		return nil, err
 	}
 	var stat unix.Stat_t
 	if err := unix.Fstatat(n.fd, req.Name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		log.Printf("fstatat failed: %v", err)
+		debugf("fstatat failed: %v", err)
 		unix.Unlinkat(n.fd, req.Name, 0) // cleanup
 		return nil, err
 	}
@@ -313,7 +312,7 @@ func (n *ServerNode) Readlink(s *session, req *proto.ReadlinkRequest) (*proto.Op
 	buf := make([]byte, unix.PathMax)
 	count, err := unix.Readlinkat(n.fd, "", buf)
 	if err != nil {
-		log.Printf("readlink failed: %v", err)
+		debugf("readlink failed: %v", err)
 		return nil, err
 	}
 	target := buf[:count]

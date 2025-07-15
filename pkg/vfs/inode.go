@@ -2,7 +2,6 @@ package vfs
 
 import (
 	"context"
-	"log"
 	"sync"
 	"syscall"
 
@@ -55,7 +54,6 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 	op := n.syncer.StartRead()
 	defer n.syncer.Complete(op)
 	if op.Async() {
-		log.Printf("Async getattr %v", n.cachedStat)
 		out.Attr = *AttrFromStatProto(n.cachedStat)
 		return fs.OK
 	}
@@ -74,7 +72,7 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 		}
 		return fs.OK
 	default:
-		log.Printf("Received response with SeqId %d but unknown type: %T, expecting GetAttrResponse", response.SeqId, s)
+		debugf("Received response with SeqId %d but unknown type: %T, expecting GetAttrResponse", response.SeqId, s)
 		return syscall.EIO
 	}
 }
@@ -114,7 +112,6 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				log.Printf("Async Setattr failed: %v", err)
 				return
 			}
 			switch s := response.Response.(type) {
@@ -140,7 +137,7 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 			n.cachedStat = s.SetAttr.Stat
 			return fs.OK
 		default:
-			log.Printf("Received response with SeqId %d but unknown type: %T, expecting SetAttrResponse", response.SeqId, s)
+			debugf("Received response with SeqId %d but unknown type: %T, expecting SetAttrResponse", response.SeqId, s)
 			return syscall.EIO
 		}
 	}
@@ -236,7 +233,7 @@ func (n *Inode) ReceiveResponse(response *proto.OperationResponse) {
 		n.handleClaimUpdate(t.ClaimUpdate.Status)
 		return
 	default:
-		log.Printf("Received response with SeqId 0 but unknown type: %T", t)
+		debugf("Received response with SeqId 0 but unknown type: %T", t)
 		return
 	}
 }

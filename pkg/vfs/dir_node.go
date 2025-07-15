@@ -2,7 +2,6 @@ package vfs
 
 import (
 	"context"
-	"log"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -69,7 +68,7 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 		}
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: s.Lookup.Stat.Mode}), 0
 	default:
-		log.Printf("Received response with SeqId %d but unknown type: %T, expecting LookupResponse", response.SeqId, s)
+		debugf("Received response with SeqId %d but unknown type: %T, expecting LookupResponse", response.SeqId, s)
 		return nil, syscall.EIO
 	}
 }
@@ -128,7 +127,7 @@ func (n *DirInode) Mkdir(ctx context.Context, name string, mode uint32, out *fus
 			node := NewDirInode(n.serverProtocol, s.Mkdir.Cookie, SYNC_EXCLUSIVE_WRITE, s.Mkdir.Stat)
 			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode | syscall.S_IFDIR}), 0
 		default:
-			log.Printf("Received response with SeqId %d but unknown type: %T, expecting MkdirResponse", response.SeqId, s)
+			debugf("Received response with SeqId %d but unknown type: %T, expecting MkdirResponse", response.SeqId, s)
 			return nil, syscall.EIO
 		}
 	}
@@ -184,7 +183,7 @@ func (n *DirInode) Mknod(ctx context.Context, name string, mode uint32, dev uint
 			node := NewInode(n.serverProtocol, s.Mknod.Cookie, SYNC_EXCLUSIVE_WRITE, s.Mknod.Stat)
 			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), 0
 		default:
-			log.Printf("Received response with SeqId %d but unknown type: %T, expecting MknodResponse", response.SeqId, s)
+			debugf("Received response with SeqId %d but unknown type: %T, expecting MknodResponse", response.SeqId, s)
 			return nil, syscall.EIO
 		}
 	}
@@ -228,7 +227,7 @@ func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				log.Printf("Async Rmdir failed: %v", err)
+				debugf("Async Rmdir failed: %v", err)
 				return
 			}
 		})
@@ -281,7 +280,7 @@ func (n *DirInode) Unlink(ctx context.Context, name string) syscall.Errno {
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				log.Printf("Async Unlink failed: %v", err)
+				debugf("Async Unlink failed: %v", err)
 				return
 			}
 		})
@@ -325,7 +324,7 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				log.Printf("Async Symlink failed: %v", err)
+				debugf("Async Symlink failed: %v", err)
 				return
 			}
 			switch s := response.Response.(type) {
@@ -333,7 +332,7 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 				cookie := s.Symlink.Cookie
 				node.ResolveCookie(cookie)
 			default:
-				log.Printf("Received unexpected response type: %T", s)
+				debugf("Received unexpected response type: %T", s)
 				return
 			}
 		})
@@ -356,7 +355,7 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 		node := NewLinkNode(n.serverProtocol, s.Symlink.Cookie, 0, []byte(pointedTo), s.Symlink.Stat)
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFLNK | 0777}), 0
 	default:
-		log.Printf("Received response with SeqId %d but unknown type: %T, expecting SymlinkResponse", response.SeqId, s)
+		debugf("Received response with SeqId %d but unknown type: %T, expecting SymlinkResponse", response.SeqId, s)
 		return nil, syscall.EIO
 	}
 }
@@ -392,7 +391,7 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				log.Printf("Async Create failed: %v", err)
+				debugf("Async Create failed: %v", err)
 				return
 			}
 			switch s := response.Response.(type) {
@@ -401,7 +400,7 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 				node.ResolveCookie(cookie)
 				fh.SetHandle(s.Create.FileHandle)
 			default:
-				log.Printf("Received unexpected response type: %T", s)
+				debugf("Received unexpected response type: %T", s)
 				return
 			}
 		})
@@ -429,7 +428,7 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 			}
 			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), fh, 0, fs.OK
 		default:
-			log.Printf("Received response with SeqId %d but unknown type: %T, expecting CreateResponse", response.SeqId, s)
+			debugf("Received response with SeqId %d but unknown type: %T, expecting CreateResponse", response.SeqId, s)
 			return nil, nil, 0, syscall.EIO
 		}
 	}
@@ -522,7 +521,7 @@ func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Err
 				s.op = nil
 			}
 		default:
-			log.Printf("Received unexpected response type: %T", resp)
+			debugf("Received unexpected response type: %T", resp)
 			return nil, syscall.EIO
 		}
 	}

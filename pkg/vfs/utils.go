@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"context"
+	"log"
 	"syscall"
 	"time"
 
@@ -85,5 +86,17 @@ func DefaultRootStat() *proto.FileStat {
 		Uid:  0,                      // Default UID
 		Gid:  0,                      // Default GID
 		Size: 4096,                   // Default size for root directory
+	}
+}
+
+var debug bool
+
+func SetDebug(d bool) {
+	debug = d
+}
+
+func debugf(format string, args ...interface{}) {
+	if debug {
+		log.Printf(format, args...)
 	}
 }

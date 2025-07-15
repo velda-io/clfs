@@ -2,7 +2,6 @@ package vfs
 
 import (
 	"context"
-	"log"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -46,7 +45,7 @@ func (n *LinkNode) Readlink(ctx context.Context) ([]byte, syscall.Errno) {
 		n.Target = resp.Readlink.Target
 		return resp.Readlink.Target, fs.OK
 	default:
-		log.Printf("ReadLink: Unexpected response type: %T", resp)
+		debugf("ReadLink: Unexpected response type: %T", resp)
 		return nil, syscall.EIO
 	}
 }

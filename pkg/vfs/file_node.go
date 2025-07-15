@@ -2,7 +2,6 @@ package vfs
 
 import (
 	"context"
-	"log"
 	"sync"
 	"syscall"
 
@@ -58,7 +57,7 @@ func (n *FileInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint
 		case *proto.OperationResponse_Open:
 			fh.SetHandle(resp.Open.FileHandle)
 		default:
-			log.Printf("Open: Unexpected response type: %T", resp)
+			debugf("Open: Unexpected response type: %T", resp)
 		}
 	})
 	return fh, 0, errno
@@ -93,7 +92,7 @@ func (n *FileInode) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off
 	case *proto.OperationResponse_Read:
 		return fuse.ReadResultData(resp.Read.Data), fs.OK
 	default:
-		log.Printf("Read: Unexpected response type: %T", resp)
+		debugf("Read: Unexpected response type: %T", resp)
 	}
 	return nil, syscall.EIO
 }
@@ -172,7 +171,7 @@ func (n *FileInode) Release(ctx context.Context, fh fs.FileHandle) syscall.Errno
 			},
 			func(response *proto.OperationResponse, err error) {
 				if err != nil {
-					log.Printf("Release: Close operation failed: %v", err)
+					debugf("Release: Close operation failed: %v", err)
 				}
 			},
 		)

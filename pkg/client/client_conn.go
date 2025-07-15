@@ -49,7 +49,6 @@ func (c *Client) Run(ctx context.Context) error {
 			}
 			return err
 		}
-		log.Printf("Recv %d %v", response.SeqId, response.String())
 		if response.SeqId == 0 {
 			// This is a server callback
 			c.mu.Lock()
@@ -86,7 +85,6 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback vfs.
 	if err != nil {
 		log.Printf("Failed to send %d: %v", c.reqId, err)
 	}
-	log.Printf("Sent %d", request.SeqId)
 	return id
 }
 

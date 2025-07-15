@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
-	"log"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -99,9 +98,9 @@ func (sess *session) HandleOp(req *proto.OperationRequest) {
 }
 
 func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
-	log.Printf("Rx: %d", req.SeqId)
+	debugf("Rx: %d", req.SeqId)
 	resp, err := node.Handle(sess, req)
-	log.Printf("Tx: %d, err %v", req.SeqId, err)
+	debugf("Tx: %d, err %v", req.SeqId, err)
 	if err != nil {
 		sess.stream.Send(&proto.OperationResponse{
 			SeqId: req.SeqId,
@@ -114,6 +113,6 @@ func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	}
 	resp.SeqId = req.SeqId
 	if err := sess.stream.Send(resp); err != nil {
-		log.Printf("Stream failure: %v", err)
+		debugf("Stream failure: %v", err)
 	}
 }

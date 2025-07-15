@@ -43,7 +43,6 @@ func (s *MtfsServiceServer) Serve(stream proto.MtfsService_ServeServer) (e error
 			log.Printf("Exiting with err %v", e)
 		}
 	}()
-	log.Printf("Connected")
 	req, err := stream.Recv()
 	if err != nil {
 		return err

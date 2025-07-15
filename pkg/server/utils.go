@@ -40,6 +40,18 @@ func ToErrno(err error) syscall.Errno {
 	if errors.As(err, &errno) {
 		return errno
 	}
-	log.Println("can't convert error type:", err)
+	debugf("can't convert error type:", err)
 	return syscall.ENOSYS
+}
+
+var debug bool
+
+func SetDebug(d bool) {
+	debug = d
+}
+
+func debugf(format string, args ...interface{}) {
+	if debug {
+		log.Printf(format, args...)
+	}
 }

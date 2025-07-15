@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -85,10 +86,11 @@ func runClient(t *testing.T, endpoint string) vfs.ServerProtocol {
 	go func() {
 		err := c.Run(context.Background())
 		// TODO: Assert this.
-		log.Printf("Client run finished with error: %v", err)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("Client run finished with error: %v", err)
+		}
 	}()
 
-	log.Printf("gRPC connection established with endpoint %s", endpoint)
 	return c
 }
 
