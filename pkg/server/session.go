@@ -101,7 +101,7 @@ func (sess *session) HandleOp(req *proto.OperationRequest) {
 func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	log.Printf("Rx: %d", req.SeqId)
 	resp, err := node.Handle(sess, req)
-	log.Printf("Tx: %d", req.SeqId)
+	log.Printf("Tx: %d, err %v", req.SeqId, err)
 	if err != nil {
 		sess.stream.Send(&proto.OperationResponse{
 			SeqId: req.SeqId,

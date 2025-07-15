@@ -133,8 +133,19 @@ func (n *ServerNode) SetAttr(s *session, req *proto.SetAttrRequest) (*proto.Oper
 		return nil, unix.EINVAL
 	}
 
+	var updateFd int
+
+	if req.Stat.Valid&(FATTR_SIZE|FATTR_MODE|FATTR_UID|FATTR_GID|FATTR_ATIME|FATTR_MTIME) != 0 {
+		var err error
+		updateFd, err = unix.Open(n.fdPath(), unix.O_RDWR, 0)
+		if err != nil {
+			return nil, err
+		}
+		defer unix.Close(updateFd)
+	}
+
 	if req.Stat.Valid&FATTR_MODE != 0 {
-		if err := unix.Fchmod(n.fd, req.Stat.Mode); err != nil {
+		if err := unix.Fchmod(updateFd, req.Stat.Mode); err != nil {
 			return nil, err
 		}
 	}
@@ -146,13 +157,13 @@ func (n *ServerNode) SetAttr(s *session, req *proto.SetAttrRequest) (*proto.Oper
 		if req.Stat.Valid&FATTR_GID != 0 {
 			gid = int(req.Stat.Gid)
 		}
-		if err := unix.Fchown(n.fd, uid, gid); err != nil {
+		if err := unix.Fchown(updateFd, uid, gid); err != nil {
 			return nil, err
 		}
 	}
 	if req.Stat.Valid&FATTR_SIZE != 0 {
 		// TODO: Needs a writable FD.
-		if err := unix.Ftruncate(n.fd, int64(req.Stat.Size)); err != nil {
+		if err := unix.Ftruncate(updateFd, int64(req.Stat.Size)); err != nil {
 			return nil, err
 		}
 	}
@@ -160,7 +171,7 @@ func (n *ServerNode) SetAttr(s *session, req *proto.SetAttrRequest) (*proto.Oper
 		var tv [2]unix.Timeval
 		tv[0] = unix.NsecToTimeval(req.Stat.Atime.Seconds*1e9 + int64(req.Stat.Atime.Nanos))
 		tv[1] = unix.NsecToTimeval(req.Stat.Mtime.Seconds*1e9 + int64(req.Stat.Mtime.Nanos))
-		if err := unix.Futimes(n.fd, tv[:]); err != nil {
+		if err := unix.Futimes(updateFd, tv[:]); err != nil {
 			return nil, err
 		}
 	}
@@ -318,7 +329,7 @@ func (n *ServerNode) Readlink(s *session, req *proto.ReadlinkRequest) (*proto.Op
 func (n *ServerNode) ScanDirectory(s *session, req *proto.ScanDirectoryRequest) (*proto.OperationResponse, error) {
 	// This is a simplified implementation that reads all entries at once.
 	// A proper implementation would handle the token for pagination.
-	df, err := unix.Openat(n.fd, "", unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	df, err := unix.Open(n.fdPath(), unix.O_RDONLY|unix.O_DIRECTORY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +406,7 @@ func (n *ServerNode) Create(s *session, req *proto.CreateRequest) (*proto.Operat
 }
 
 func (n *ServerNode) Open(s *session, req *proto.OpenRequest) (*proto.OperationResponse, error) {
-	fd, err := unix.Openat(n.fd, "", int(req.Flags), 0)
+	fd, err := unix.Open(n.fdPath(), int(req.Flags), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -453,4 +464,9 @@ func (n *ServerNode) CloseOp(s *session, req *proto.CloseRequest) (*proto.Operat
 			Close: &proto.CloseResponse{},
 		},
 	}, nil
+}
+
+func (n *ServerNode) fdPath() string {
+	// This is inherently racy, but we need to construct the path for operations like Readlink.
+	return fmt.Sprintf("/proc/self/fd/%d", n.fd)
 }

@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log"
 	"sync"
 	"syscall"
@@ -42,6 +44,9 @@ func (c *Client) Run(ctx context.Context) error {
 	for {
 		response, err := stream.Recv()
 		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				return nil
+			}
 			return err
 		}
 		log.Printf("Recv %d %v", response.SeqId, response.String())

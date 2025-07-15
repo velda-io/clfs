@@ -55,6 +55,7 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 	op := n.syncer.StartRead()
 	defer n.syncer.Complete(op)
 	if op.Async() {
+		log.Printf("Async getattr %v", n.cachedStat)
 		out.Attr = *AttrFromStatProto(n.cachedStat)
 		return fs.OK
 	}
@@ -76,19 +77,6 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 		log.Printf("Received response with SeqId %d but unknown type: %T, expecting GetAttrResponse", response.SeqId, s)
 		return syscall.EIO
 	}
-}
-
-// TODO: Rename, Create, Open
-
-var _ = (fs.NodeOpener)((*Inode)(nil))
-
-func (n *Inode) Open(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, err syscall.Errno) {
-	op := n.syncer.StartWrite()
-	defer n.syncer.Complete(op)
-	if op.Async() {
-
-	}
-	return nil, 0, syscall.ENOSYS // Not implemented yet
 }
 
 var _ = (fs.NodeSetattrer)((*Inode)(nil))

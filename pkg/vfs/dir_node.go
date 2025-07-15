@@ -65,7 +65,7 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 
 		node := NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
 		if s.Lookup.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
-			node.handleClaimUpdate(s.Lookup.Claim)
+			node.(InodeInterface).handleClaimUpdate(s.Lookup.Claim)
 		}
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: s.Lookup.Stat.Mode}), 0
 	default:
@@ -160,7 +160,7 @@ func (n *DirInode) Mknod(ctx context.Context, name string, mode uint32, dev uint
 			switch s := response.Response.(type) {
 			case *proto.OperationResponse_Mknod:
 				cookie := s.Mknod.Cookie
-				node.ResolveCookie(cookie)
+				node.(InodeInterface).ResolveCookie(cookie)
 			default:
 				// Handle unexpected response type
 				return

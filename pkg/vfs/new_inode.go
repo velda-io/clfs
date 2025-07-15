@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"log"
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -8,18 +9,19 @@ import (
 )
 
 type InodeInterface interface {
-	fs.InodeEmbedder
 	ResolveCookie(cookie []byte)
 	handleClaimUpdate(proto.ClaimStatus)
 }
 
-func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) InodeInterface {
+func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) fs.InodeEmbedder {
 	flags := initialStat.Mode
-	if flags&syscall.S_IFDIR != 0 {
+	log.Printf("Creating INode for mode %d", flags)
+	switch flags & syscall.S_IFMT {
+	case syscall.S_IFDIR:
 		return NewDirInode(serverProtocol, cookie, initialSyncGrants, initialStat)
-	} else if flags&syscall.S_IFLNK != 0 {
+	case syscall.S_IFLNK:
 		return NewLinkNode(serverProtocol, cookie, 0, nil, initialStat)
-	} else if flags&syscall.S_IFREG != 0 {
+	case syscall.S_IFREG:
 		return NewFileInode(serverProtocol, cookie, initialSyncGrants, initialStat)
 	}
 	panic("Unsupported inode type")

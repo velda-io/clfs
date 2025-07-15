@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"os"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -171,7 +172,8 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 	inode := NewDirInode(mockServer, parentCookie, SYNC_EXCLUSIVE_WRITE, DefaultRootStat())
 
 	asyncComplete := make(chan struct{})
-	allComplete := make(chan struct{})
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
 
 	mockServer.On("EnqueueOperation", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		// Capture the request for validation
@@ -193,6 +195,7 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 							},
 						},
 					}, nil)
+					wg.Done()
 				}()
 			case "testdir2":
 				assert.Equal(t, newDirCookie, capturedRequest.Cookie, "Expected new dir cookie to level 1 dir")
@@ -204,7 +207,7 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 						},
 					},
 				}, nil)
-				close(allComplete)
+				wg.Done()
 			}
 		default:
 			t.Fatalf("Unexpected operation type: %T", s)
@@ -217,7 +220,7 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	close(asyncComplete)
-	<-allComplete
+	wg.Wait()
 
 	// Verify all mock expectations were met
 	mockServer.AssertExpectations(t)
