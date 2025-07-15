@@ -4,6 +4,9 @@ import (
 	"context"
 	"flag"
 	"log"
+	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,7 +22,7 @@ import (
 )
 
 var debug = flag.Bool("debug", false, "Enable debug logging")
-var endpoint = flag.String("endpoint", "dns://localhost:50055", "gRPC endpoint to connect to")
+var endpoint = flag.String("endpoint", "dns:///localhost:50055", "gRPC endpoint to connect to")
 
 type MountOptions func(*fs.Options)
 
@@ -28,23 +31,27 @@ func RunClient(endpoint string) vfs.ServerProtocol {
 	if err != nil {
 		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
 	}
-	defer conn.Close()
 
 	c := client.NewClient(conn)
+	err = c.Start(context.Background())
+	if err != nil {
+		log.Fatalf("Client start error: %v", err)
+	}
 	go func() {
 		err := c.Run(context.Background())
 		if err != nil {
-			log.Fatalf("Client run error: %v", err)
+			log.Printf("Client run error: %v", err)
 		}
 	}()
+
 	log.Printf("gRPC connection established with endpoint %s", endpoint)
 	return c
 }
 
-func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
+func Mount(volume, workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
 	svc := RunClient(*endpoint)
 
-	root := vfs.NewDirInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE, vfs.DefaultRootStat())
+	root := vfs.NewDirInode(svc, nil, 0, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
 	option := &fs.Options{
@@ -61,6 +68,13 @@ func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, e
 			DirectMountFlags:   syscall.MS_MGC_VAL,
 			Debug:              *debug,
 		},
+		OnAdd: func(ctx context.Context) {
+			err := root.Mount(ctx, volume)
+			if err != nil {
+				log.Fatalf("Failed to mount volume %s: %v", volume, err)
+			}
+			log.Printf("Mounted volume %s at %s", volume, workspaceDir)
+		},
 	}
 	for _, opt := range options {
 		opt(option)
@@ -74,15 +88,23 @@ func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, e
 
 func main() {
 	flag.Parse()
-	if flag.NArg() != 1 {
-		log.Fatalf("Usage: %s <workspace-dir>", os.Args[0])
+	if flag.NArg() != 2 {
+		log.Fatalf("Usage: %s <volume> <dir>", os.Args[0])
 	}
-	workspaceDir := flag.Arg(0)
 
-	server, err := MountWorkDir(workspaceDir)
+	go func() {
+		lis, _ := net.Listen("tcp", ":6070")
+		http.Serve(lis, nil)
+	}()
+
+	volume := flag.Arg(0)
+	workspaceDir := flag.Arg(1)
+
+	server, err := Mount(volume, workspaceDir)
 	if err != nil {
 		log.Fatalf("Failed to mount: %v", err)
 	}
+
 	log.Printf("Mounted at %s", workspaceDir)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)

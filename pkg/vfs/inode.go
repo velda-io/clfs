@@ -182,7 +182,7 @@ func (n *Inode) asyncOperation(ctx context.Context, request *proto.OperationRequ
 		request:  request,
 		callback: callback,
 	}
-	if n.cookie == nil {
+	if n.cookie == nil && request.GetMount() == nil {
 		n.pendingOps = append(n.pendingOps, operation)
 		return
 	}

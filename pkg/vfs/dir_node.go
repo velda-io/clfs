@@ -435,6 +435,30 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 	}
 }
 
+func (n *DirInode) Mount(ctx context.Context, volume string) error {
+	op := n.syncer.StartWrite()
+	defer n.syncer.Complete(op)
+	// Mount is always synchronous
+	response, err := n.syncOperation(ctx, &proto.OperationRequest{
+		Operation: &proto.OperationRequest_Mount{Mount: &proto.MountRequest{
+			Volume: volume,
+		}},
+	})
+	if err != nil {
+		return fs.ToErrno(err)
+	}
+	switch s := response.Response.(type) {
+	case *proto.OperationResponse_Mount:
+		if s.Mount.Cookie == nil {
+			return syscall.EINVAL // Mount failed, no cookie returned
+		}
+		n.ResolveCookie(s.Mount.Cookie)
+		n.handleClaimUpdate(s.Mount.Claim)
+		n.cachedStat = s.Mount.Stat
+	}
+	return nil
+}
+
 var _ = (fs.NodeOpendirHandler)((*DirInode)(nil))
 
 func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {

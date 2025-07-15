@@ -2,7 +2,9 @@ package client
 
 import (
 	"context"
+	"log"
 	"sync"
+	"syscall"
 
 	"google.golang.org/grpc"
 	"velda.io/mtfs/pkg/proto"
@@ -26,18 +28,23 @@ func NewClient(conn *grpc.ClientConn) *Client {
 	}
 }
 
-func (c *Client) Run(ctx context.Context) error {
+func (c *Client) Start(ctx context.Context) error {
 	stream, err := c.client.Serve(ctx)
 	if err != nil {
 		return err
 	}
 	c.stream = stream
+	return nil
+}
 
+func (c *Client) Run(ctx context.Context) error {
+	stream := c.stream
 	for {
 		response, err := stream.Recv()
 		if err != nil {
 			return err
 		}
+		log.Printf("Recv %d %v", response.SeqId, response.String())
 		if response.SeqId == 0 {
 			// This is a server callback
 			c.mu.Lock()
@@ -51,8 +58,13 @@ func (c *Client) Run(ctx context.Context) error {
 			c.mu.Lock()
 			callback, ok := c.callbacks[response.SeqId]
 			c.mu.Unlock()
+			err = nil
+			if response.Error != nil {
+				err = syscall.Errno(response.Error.Code)
+				response = nil
+			}
 			if ok {
-				callback(response, nil)
+				callback(response, err)
 			}
 		}
 	}
@@ -65,7 +77,11 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback vfs.
 	c.callbacks[id] = callback
 	c.mu.Unlock()
 	request.SeqId = id
-	c.stream.Send(request)
+	err := c.stream.Send(request)
+	if err != nil {
+		log.Printf("Failed to send %d: %v", c.reqId, err)
+	}
+	log.Printf("Sent %d", request.SeqId)
 	return id
 }
 
