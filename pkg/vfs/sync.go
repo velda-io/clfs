@@ -99,6 +99,7 @@ func (s *syncer) Complete(op *operation) {
 	} else {
 		s.writerActive = false
 	}
+	s.checkClaimUpdates()
 	s.cond.Broadcast()
 }
 
@@ -113,9 +114,7 @@ func (s *syncer) CompleteAsync(op *operation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.asyncOps--
-	if s.asyncOps == 0 {
-		s.cond.Broadcast()
-	}
+	s.checkClaimUpdates()
 }
 
 func (s *syncer) UpgradeClaim(newFlag int) {
@@ -129,17 +128,19 @@ func (s *syncer) UpgradeClaim(newFlag int) {
 	}
 	s.flags |= newFlag
 	// Wait for all operations to complete before upgrading the claim
-	for (!s.emptyLocked() || s.asyncOps > 0) && s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 {
-		s.cond.Wait()
+	s.checkClaimUpdates()
+}
+
+func (s *syncer) checkClaimUpdates() {
+	if s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 && s.emptyLocked() && s.asyncOps == 0 {
+		if s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 {
+			s.flags &^= (SYNC_EXCLUSIVE_WRITE_GRANTED | SYNC_LOCK_READ_GRANTED)
+			s.flags |= SYNC_EXCLUSIVE_WRITE
+		} else if s.flags&SYNC_LOCK_READ_GRANTED != 0 {
+			s.flags &^= SYNC_LOCK_READ_GRANTED
+			s.flags |= SYNC_LOCK_READ
+		}
 	}
-	if s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 {
-		s.flags &^= (SYNC_EXCLUSIVE_WRITE_GRANTED | SYNC_LOCK_READ_GRANTED)
-		s.flags |= SYNC_EXCLUSIVE_WRITE
-	} else if s.flags&SYNC_LOCK_READ_GRANTED != 0 {
-		s.flags &^= SYNC_LOCK_READ_GRANTED
-		s.flags |= SYNC_LOCK_READ
-	}
-	s.cond.Broadcast()
 }
 
 func (s *syncer) emptyLocked() bool {

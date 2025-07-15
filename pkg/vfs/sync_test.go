@@ -204,19 +204,14 @@ func TestSyncerStartRead(t *testing.T) {
 func TestSyncerUpgradeClaim(t *testing.T) {
 	t.Run("UpgradeToExclusiveWrite", func(t *testing.T) {
 		s := NewSyncer()
-		upgradeComplete := false
 
 		op1 := s.StartRead()
 		op2 := s.StartWrite()
 		assert.False(t, op1.Async(), "Read operation should not be async before upgrade")
 		assert.False(t, op2.Async(), "Write operation should not be async before upgrade")
 		wg := sync.WaitGroup{}
-		wg.Add(3)
-		go func() {
-			s.UpgradeClaim(SYNC_EXCLUSIVE_WRITE_GRANTED)
-			upgradeComplete = true
-			wg.Done()
-		}()
+		wg.Add(2)
+		s.UpgradeClaim(SYNC_EXCLUSIVE_WRITE_GRANTED)
 		time.Sleep(100 * time.Millisecond) // Allow goroutines to run
 		var op3, op4 *operation
 		go func() {
@@ -231,7 +226,6 @@ func TestSyncerUpgradeClaim(t *testing.T) {
 			wg.Done()
 		}()
 		time.Sleep(100 * time.Millisecond) // Verify being blocked
-		assert.False(t, upgradeComplete, "Upgrade should not complete while operations are pending")
 		assert.Nil(t, op3, "Write operation should not start while upgrade is pending")
 		assert.Nil(t, op4, "Read operation should not start while upgrade is pending")
 
@@ -239,26 +233,20 @@ func TestSyncerUpgradeClaim(t *testing.T) {
 		s.Complete(op2)
 
 		wg.Wait()
-		assert.True(t, upgradeComplete, "Upgrade should complete after all operations are done")
 		assert.True(t, op3.Async(), "Write operation should be async after upgrade")
 		assert.True(t, op4.Async(), "Read operation should be async after upgrade")
 	})
 
 	t.Run("UpgradeToLockRead", func(t *testing.T) {
 		s := NewSyncer()
-		upgradeComplete := false
 
 		op1 := s.StartRead()
 		op2 := s.StartWrite()
 		assert.False(t, op1.Async(), "Read operation should not be async before upgrade")
 		assert.False(t, op2.Async(), "Write operation should not be async before upgrade")
 		wg := sync.WaitGroup{}
-		wg.Add(2)
-		go func() {
-			s.UpgradeClaim(SYNC_LOCK_READ_GRANTED)
-			upgradeComplete = true
-			wg.Done()
-		}()
+		wg.Add(1)
+		s.UpgradeClaim(SYNC_LOCK_READ_GRANTED)
 		time.Sleep(100 * time.Millisecond) // Allow goroutines to run
 		var op3 *operation
 
@@ -268,32 +256,25 @@ func TestSyncerUpgradeClaim(t *testing.T) {
 			wg.Done()
 		}()
 		time.Sleep(100 * time.Millisecond) // Verify being blocked
-		assert.False(t, upgradeComplete, "Upgrade should not complete while operations are pending")
 		assert.Nil(t, op3, "Read operation should not start while upgrade is pending")
 
 		s.Complete(op1)
 		s.Complete(op2)
 
 		wg.Wait()
-		assert.True(t, upgradeComplete, "Upgrade should complete after all operations are done")
 		assert.True(t, op3.Async(), "Read operation should be async after upgrade")
 	})
 
 	t.Run("WriteCancelReadUpgrade", func(t *testing.T) {
 		s := NewSyncer()
-		upgradeComplete := false
 
 		op1 := s.StartRead()
 		op2 := s.StartWrite()
 		assert.False(t, op1.Async(), "Read operation should not be async before upgrade")
 		assert.False(t, op2.Async(), "Write operation should not be async before upgrade")
 		wg := sync.WaitGroup{}
-		wg.Add(2)
-		go func() {
-			s.UpgradeClaim(SYNC_LOCK_READ_GRANTED)
-			upgradeComplete = true
-			wg.Done()
-		}()
+		wg.Add(1)
+		s.UpgradeClaim(SYNC_LOCK_READ_GRANTED)
 		time.Sleep(100 * time.Millisecond) // Allow goroutines to run
 		var op3 *operation
 
@@ -303,7 +284,6 @@ func TestSyncerUpgradeClaim(t *testing.T) {
 			wg.Done()
 		}()
 		time.Sleep(100 * time.Millisecond) // Verify being blocked
-		assert.False(t, upgradeComplete, "Upgrade should not complete while operations are pending")
 		assert.Nil(t, op3, "Read operation should not start while upgrade is pending")
 		op4 := s.StartWrite()
 		assert.False(t, op4.Async(), "Write operation should not be async with only read lock.")
@@ -312,7 +292,6 @@ func TestSyncerUpgradeClaim(t *testing.T) {
 		s.Complete(op2)
 
 		wg.Wait()
-		assert.True(t, upgradeComplete, "Upgrade should complete after all operations are done")
 		assert.Equal(t, s.flags, 0, "Flags should be reset after write")
 		assert.False(t, op3.Async(), "Read operation should not be async after write triggered cancel")
 	})
