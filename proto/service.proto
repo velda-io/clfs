@@ -38,7 +38,15 @@ message OperationRequest {
     WriteRequest write = 15;   // Request to write to a file
     CloseRequest close = 16;   // Request to close a file
     CreateRequest create = 17; // Request to create a file
+
+    MountRequest mount = 18; // Request to mount a filesystem
   }
+}
+
+message ErrorResponse {
+  // unix error code
+  int32 code = 2;
+  string detail_msg = 1;
 }
 
 message OperationResponse {
@@ -66,7 +74,10 @@ message OperationResponse {
     WriteResponse write = 16;   // Response to write to a file
     CloseResponse close = 17;   // Response to close a file
     CreateResponse create = 18; // Response to create a file
+
+    MountResponse mount = 19; // Response to mount a filesystem
   }
+  ErrorResponse error = 20; // Error response if the operation failed
 }
 
 message MkdirRequest {
@@ -204,6 +215,17 @@ message CloseResponse {
 }
 message ClaimUpdateServerRequest {
   ClaimStatus status = 1; // Status of the claim update
+}
+
+message MountRequest {
+  // Volume name.
+  string volume = 1;
+}
+
+message MountResponse {
+  bytes cookie = 1;      // Cookie for the mount point
+  FileStat stat = 2;     // Statistics of the mount point
+  ClaimStatus claim = 3; // Claim status of the mount point
 }
 
 service MtfsService {

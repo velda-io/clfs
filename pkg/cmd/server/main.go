@@ -4,6 +4,8 @@ import (
 	"flag"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,22 +20,36 @@ func main() {
 	// Define flags for endpoint and root directory
 	endpoint := flag.String("endpoint", "localhost:50055", "The endpoint to listen on")
 	rootDir := flag.String("root", "./", "The root directory for the service")
+	volumeName := flag.String("vname", "volume", "Name of the volume")
 	flag.Parse()
 
+	go func() {
+		lis, _ := net.Listen("tcp", ":6071")
+		http.Serve(lis, nil)
+	}()
 	// Start the gRPC server
 	listener, err := net.Listen("tcp", *endpoint)
 	if err != nil {
 		log.Fatalf("Failed to listen on %s: %v", *endpoint, err)
 	}
 
+	volume, err := server.NewVolume(*rootDir)
+	if err != nil {
+		log.Fatalf("Failed to open volume %s: %v", *rootDir, err)
+	}
+
+	volumes := make(map[string]*server.Volume)
+	volumes[*volumeName] = volume
+
 	grpcServer := grpc.NewServer()
-	service := server.NewMtfsServiceServer()
+	service := server.NewMtfsServiceServer(volumes)
 	proto.RegisterMtfsServiceServer(grpcServer, service)
 
 	// Handle termination signals
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 
+	service.Run(10)
 	go func() {
 		log.Printf("Starting server at %s with root directory %s", *endpoint, *rootDir)
 		if err := grpcServer.Serve(listener); err != nil {

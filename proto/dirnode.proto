@@ -21,6 +21,7 @@ message FileStat {
   google.protobuf.Timestamp atime = 8;
   google.protobuf.Timestamp mtime = 9;
   google.protobuf.Timestamp ctime = 10;
+  uint32 nlink = 11; // Number of hard links
   // TODO: xattr
 }
 
