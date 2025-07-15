@@ -476,9 +476,19 @@ func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileH
 				Off:  0, // Offset is not used in this context
 			})
 		}
-		return fs.NewListDirStream(list), 0, 0
+		return &cachedDirStream{
+			idx:     0,
+			entries: list,
+			op:      op,
+			inode:   n,
+		}, 0, 0
 	}
 	return &DirStream{inode: n, op: op}, 0, 0
+}
+
+type DirStreamCloser struct {
+	DirStream
+	op *operation
 }
 
 type DirStream struct {
@@ -523,10 +533,43 @@ func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Err
 	s.returned++
 
 	out := &fuse.DirEntry{
-		//Ino:  uint64(entry.Inode),
+		Ino:  uint64(entry.Inode),
 		Name: entry.Name,
 		Mode: entry.Type,
 		Off:  entry.Offset,
 	}
 	return out, fs.OK
+}
+
+var _ = (fs.FileReleasedirer)((*DirStream)(nil))
+
+func (s *DirStream) Releasedir(ctx context.Context, flags uint32) {
+	if s.op != nil {
+		s.inode.syncer.Complete(s.op)
+		s.op = nil
+	}
+}
+
+type cachedDirStream struct {
+	idx     int
+	entries []fuse.DirEntry
+	op      *operation
+	inode   *DirInode
+}
+
+func (a *cachedDirStream) Releasedir(ctx context.Context, releaseFlags uint32) {
+	if a.op != nil {
+		a.inode.syncer.Complete(a.op)
+		a.op = nil
+	}
+}
+
+func (a *cachedDirStream) Readdirent(ctx context.Context) (de *fuse.DirEntry, errno syscall.Errno) {
+	if a.idx >= len(a.entries) {
+		return nil, 0 // No more entries
+	}
+	e := a.entries[a.idx]
+	a.idx++
+	e.Off = uint64(a.idx)
+	return &e, 0
 }

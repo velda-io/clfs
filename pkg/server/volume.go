@@ -48,7 +48,6 @@ func (v *Volume) GetNode(parentFd int, name string) (*ServerNode, error) {
 		fd:     fd,
 		nodeId: v.curNodeId,
 		mode:   stat.Mode,
-		stat:   StatProtoFromSysStat(&stat),
 	}
 	// Do not allow cross mountpoint
 	if stat.Dev != v.dev {

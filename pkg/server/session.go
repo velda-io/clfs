@@ -2,17 +2,57 @@ package server
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"log"
+	"sync"
 
 	"golang.org/x/sys/unix"
 	"velda.io/mtfs/pkg/proto"
 )
 
 type session struct {
-	volume *Volume // The volume this session is associated with
-	stream proto.MtfsService_ServeServer
+	volume      *Volume // The volume this session is associated with
+	stream      proto.MtfsService_ServeServer
+	fileHandles map[string]int // map file handle to fd
+	fhMu        sync.Mutex
+}
+
+func (s *session) newFileHandle(fd int) []byte {
+	s.fhMu.Lock()
+	defer s.fhMu.Unlock()
+	if s.fileHandles == nil {
+		s.fileHandles = make(map[string]int)
+	}
+	for {
+		handle := make([]byte, 16)
+		if _, err := rand.Read(handle); err != nil {
+			panic(err) // Should not happen
+		}
+		handleStr := string(handle)
+		if _, exists := s.fileHandles[handleStr]; !exists {
+			s.fileHandles[handleStr] = fd
+			return handle
+		}
+	}
+}
+
+func (s *session) getFd(handle []byte) (int, bool) {
+	s.fhMu.Lock()
+	defer s.fhMu.Unlock()
+	fd, ok := s.fileHandles[string(handle)]
+	return fd, ok
+}
+
+func (s *session) closeFileHandle(handle []byte) {
+	s.fhMu.Lock()
+	defer s.fhMu.Unlock()
+	handleStr := string(handle)
+	if fd, ok := s.fileHandles[handleStr]; ok {
+		unix.Close(fd)
+		delete(s.fileHandles, handleStr)
+	}
 }
 
 func (s *session) GetCookie(node *ServerNode) []byte {
@@ -60,7 +100,7 @@ func (sess *session) HandleOp(req *proto.OperationRequest) {
 
 func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	log.Printf("Rx: %d", req.SeqId)
-	resp, err := node.HandleOperation(sess, req)
+	resp, err := node.Handle(sess, req)
 	log.Printf("Tx: %d", req.SeqId)
 	if err != nil {
 		sess.stream.Send(&proto.OperationResponse{
