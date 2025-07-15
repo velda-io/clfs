@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -10,36 +11,38 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/mtfs/pkg/client"
 	"velda.io/mtfs/pkg/vfs"
 )
 
 var debug = flag.Bool("debug", false, "Enable debug logging")
-
-type FakeSvc struct {
-}
-
-func (svc *FakeSvc) EnqueueOperation(request *proto.OperationRequest, callback vfs.OpCallback) int64 {
-	// Fake implementation that just returns a success response
-	go func() {
-		callback(&proto.OperationResponse{}, nil)
-	}()
-	return 1
-}
-
-func (svc *FakeSvc) RegisterServerCallback(cookie []byte, callback vfs.ServerCallback) {
-	// No-op implementation for fake service
-}
-
-func (svc *FakeSvc) UnregisterServerCallback(cookie []byte) {
-	// No-op implementation for fake service
-}
+var endpoint = flag.String("endpoint", "dns://localhost:50055", "gRPC endpoint to connect to")
 
 type MountOptions func(*fs.Options)
 
+func RunClient(endpoint string) vfs.ServerProtocol {
+	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
+	}
+	defer conn.Close()
+
+	c := client.NewClient(conn)
+	go func() {
+		err := c.Run(context.Background())
+		if err != nil {
+			log.Fatalf("Client run error: %v", err)
+		}
+	}()
+	log.Printf("gRPC connection established with endpoint %s", endpoint)
+	return c
+}
+
 func MountWorkDir(workspaceDir string, options ...MountOptions) (*fuse.Server, error) {
-	svc := &FakeSvc{}
+	svc := RunClient(*endpoint)
 
 	root := vfs.NewDirInode(svc, []byte("123"), vfs.SYNC_EXCLUSIVE_WRITE, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
