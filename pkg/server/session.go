@@ -98,25 +98,27 @@ func (sess *session) HandleOp(req *proto.OperationRequest) {
 }
 
 func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
+	run := func(resp *proto.OperationResponse, err error) {
+		debugf("Tx: %d, err %v", req.SeqId, err)
+		sess.streamMu.RLock()
+		defer sess.streamMu.RUnlock()
+		if err != nil {
+			sess.stream.Send(&proto.OperationResponse{
+				SeqId: req.SeqId,
+				Error: &proto.ErrorResponse{
+					DetailMsg: err.Error(),
+					Code:      int32(ToErrno(err)),
+				},
+			})
+			return
+		}
+		resp.SeqId = req.SeqId
+		if err := sess.stream.Send(resp); err != nil {
+			debugf("Stream failure: %v", err)
+		}
+	}
 	debugf("Rx: %d", req.SeqId)
-	resp, err := node.Handle(sess, req)
-	debugf("Tx: %d, err %v", req.SeqId, err)
-	sess.streamMu.RLock()
-	defer sess.streamMu.RUnlock()
-	if err != nil {
-		sess.stream.Send(&proto.OperationResponse{
-			SeqId: req.SeqId,
-			Error: &proto.ErrorResponse{
-				DetailMsg: err.Error(),
-				Code:      int32(ToErrno(err)),
-			},
-		})
-		return
-	}
-	resp.SeqId = req.SeqId
-	if err := sess.stream.Send(resp); err != nil {
-		debugf("Stream failure: %v", err)
-	}
+	node.Handle(sess, req, run)
 }
 
 func (sess *session) SendNotify(node *ServerNode, op *proto.OperationResponse, callback NotifyCallback) {

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"syscall"
 
@@ -133,7 +132,6 @@ func (v *Volume) DecodeCookie(cookie []byte) (*ServerNode, error) {
 	if buf.Len() != 0 {
 		return nil, fmt.Errorf("cookie has extra data: %d bytes", buf.Len())
 	}
-	log.Printf("Decoding cookie: type %d, size %d", t, size)
 	fh := unix.NewFileHandle(t, data)
 	node, err := v.GetNodeByHandle(fh)
 	if err != nil {

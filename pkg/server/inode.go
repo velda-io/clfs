@@ -34,8 +34,51 @@ func (n *ServerNode) Close() {
 	}
 }
 
+type HandleCallback func(*proto.OperationResponse, error)
+
+func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback HandleCallback) {
+
+	do := func() {
+		resp, err := n.handle(s, req)
+		callback(resp, err)
+	}
+	var readonly bool
+	switch op := req.Operation.(type) {
+	// Readonly
+	case *proto.OperationRequest_Lookup:
+	case *proto.OperationRequest_GetAttr:
+	case *proto.OperationRequest_Readlink:
+	case *proto.OperationRequest_ScanDir:
+	case *proto.OperationRequest_Read:
+		readonly = true
+
+	case *proto.OperationRequest_SetAttr:
+	case *proto.OperationRequest_Mknod:
+	case *proto.OperationRequest_Mkdir:
+	case *proto.OperationRequest_Rmdir:
+	case *proto.OperationRequest_Unlink:
+	case *proto.OperationRequest_Symlink:
+	case *proto.OperationRequest_Create:
+	case *proto.OperationRequest_Write:
+	case *proto.OperationRequest_Close:
+	case *proto.OperationRequest_Mount:
+		readonly = false
+
+	case *proto.OperationRequest_Open:
+		readonly = op.Open.Flags&(unix.O_WRONLY|unix.O_RDWR|unix.O_APPEND) == 0
+	default:
+		callback(nil, fmt.Errorf("unhandled request: %T", op))
+		return
+	}
+	if readonly {
+		n.tracker.Read(s, do)
+	} else {
+		n.tracker.Write(s, do)
+	}
+}
+
 // Handle processes a single operation request for this node.
-func (n *ServerNode) Handle(s *session, req *proto.OperationRequest) (*proto.OperationResponse, error) {
+func (n *ServerNode) handle(s *session, req *proto.OperationRequest) (*proto.OperationResponse, error) {
 	switch op := req.Operation.(type) {
 	case *proto.OperationRequest_Lookup:
 		return n.Lookup(s, op.Lookup)
