@@ -147,6 +147,11 @@ func (n *FileInode) Flush(ctx context.Context, fh fs.FileHandle) syscall.Errno {
 }
 
 func (n *FileInode) Fsync(ctx context.Context, fh fs.FileHandle, flags uint32) syscall.Errno {
+	lfh := fh.(*fileHandle)
+	lfh.Wait.Wait() // Wait for any pending writes to complete
+	if lfh.writeErr != nil {
+		return fs.ToErrno(lfh.writeErr)
+	}
 	return fs.OK
 }
 

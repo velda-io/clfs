@@ -151,20 +151,9 @@ func (n *Inode) OnForget() {
 		return
 	}
 	debugf("Forget called on Inode with cookie %x", n.cookie)
-	request := &proto.OperationRequest{
-		Operation: &proto.OperationRequest_Forget{
-			Forget: &proto.ForgetRequest{},
-		},
-	}
 	// After all operations are completed, we will send a forget request to the server.
 	n.syncer.SetCleanup(func() {
-		n.asyncOperation(context.Background(), request, func(response *proto.OperationResponse, err error) {
-			if err != nil {
-				debugf("Forget operation failed: %v", err)
-				return
-			}
-			n.serverProtocol.UnregisterServerCallback(n.cookie)
-		})
+		n.serverProtocol.UnregisterServerCallback(n.cookie)
 	})
 }
 

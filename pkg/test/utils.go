@@ -28,7 +28,9 @@ type TestServer struct {
 }
 
 func StartTestServer(t *testing.T) *TestServer {
+	//path, _ := os.MkdirTemp("", "mtfs-test-server")
 	path := t.TempDir()
+	t.Log("Test server path:", path)
 	return StartTestServerWithPath(t, path)
 }
 
@@ -128,10 +130,20 @@ func doMount(addr, dir string, debug bool, mode int) {
 	}
 	// Kill by SIGTERM
 	sig := make(chan os.Signal, 1)
+	stopped := false
+	go func() {
+		mnt.Wait()
+		stopped = true
+		signal.Stop(sig)
+		close(sig)
+	}()
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	<-sig
-	if err := mnt.Unmount(); err != nil {
-		log.Fatalf("testMount: Unmount failed: %v", err)
+	signal.Stop(sig)
+	if !stopped {
+		if err := mnt.Unmount(); err != nil {
+			log.Fatalf("testMount: Unmount failed: %v", err)
+		}
 	}
 }
 
@@ -161,6 +173,13 @@ func TestMain(m *testing.M) {
 
 func Mount(t *testing.T, server *TestServer, mode int) string {
 	t.Helper()
+	mntDir, stop := MountOne(t, server, mode)
+	t.Cleanup(stop)
+	return mntDir
+}
+
+func MountOne(t *testing.T, server *TestServer, mode int) (string, func()) {
+	t.Helper()
 
 	mntDir := t.TempDir()
 	oldStat, err := os.Stat(mntDir)
@@ -178,13 +197,10 @@ func Mount(t *testing.T, server *TestServer, mode int) string {
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			cmd.Process.Signal(syscall.SIGTERM)
-			cmd.Process.Wait()
-			unix.Unmount(mntDir, 0)
-		}
-	})
+	stop := func() {
+		unix.Unmount(mntDir, 0)
+		cmd.Process.Wait()
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start mount command: %v", err)
 	}
@@ -199,5 +215,5 @@ func Mount(t *testing.T, server *TestServer, mode int) string {
 			break
 		}
 	}
-	return mntDir
+	return mntDir, stop
 }

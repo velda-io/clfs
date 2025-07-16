@@ -54,6 +54,37 @@ func TestFull(t *testing.T) {
 			*/
 		})
 
+		t.Run("TestPersist"+tt.name, func(t *testing.T) {
+			s := StartTestServer(t)
+			dir, stop := MountOne(t, s, mode)
+			assert.NoError(t, os.Mkdir(dir+"/testdir", 0755), "Mkdir should succeed")
+
+			file, err := os.Create(dir + "/testdir/testfile.txt")
+			assert.NoError(t, err, "Create file should succeed")
+			_, err = file.Write([]byte("Hello, World!"))
+			assert.NoError(t, err, "Write to file should succeed")
+			assert.NoError(t, file.Close(), "Close file should succeed")
+
+			// Create another file
+			file2, err := os.Create(dir + "/testdir/testfile2.txt")
+			assert.NoError(t, err, "Create second file should succeed")
+			_, err = file2.Write([]byte("Another file content"))
+			assert.NoError(t, err, "Write to second file should succeed")
+			assert.NoError(t, file2.Close(), "Close file should succeed")
+
+			stop()
+
+			dir, stop = MountOne(t, s, 0)
+			t.Cleanup(stop)
+			content, err := os.ReadFile(dir + "/testdir/testfile.txt")
+			assert.NoError(t, err, "Read file should succeed")
+			assert.Equal(t, "Hello, World!", string(content), "File content should match written data")
+
+			content, err = os.ReadFile(dir + "/testdir/testfile2.txt")
+			assert.NoError(t, err, "Read second file should succeed")
+			assert.Equal(t, "Another file content", string(content), "Second file content should match written data")
+		})
+
 		t.Run("TestFStat"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
 			dir := Mount(t, s, mode)

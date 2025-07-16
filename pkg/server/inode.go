@@ -25,8 +25,6 @@ type ServerNode struct {
 	fd     int // File descriptor for the node
 	nodeId uint64
 	mode   uint32
-	// Protected by volume's mu
-	ref int
 }
 
 func (n *ServerNode) Close() {
@@ -247,7 +245,7 @@ func (n *ServerNode) Mkdir(s *session, req *proto.MkdirRequest) (*proto.Operatio
 	return &proto.OperationResponse{
 		Response: &proto.OperationResponse_Mkdir{
 			Mkdir: &proto.MkdirResponse{
-				Cookie: s.GetCookie(n),
+				Cookie: s.GetCookie(newNode),
 				Stat:   StatProtoFromSysStat(&stat),
 			},
 		},
