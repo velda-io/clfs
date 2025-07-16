@@ -2,21 +2,21 @@ package test
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
-	"github.com/stretchr/testify/assert"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"velda.io/mtfs/pkg/client"
 	"velda.io/mtfs/pkg/proto"
 	"velda.io/mtfs/pkg/server"
 	"velda.io/mtfs/pkg/vfs"
@@ -58,7 +58,7 @@ func StartTestServerWithPath(t *testing.T, path string) *TestServer {
 	service.Run(10)
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil {
-			t.Fatal("Failed to serve:", err)
+			log.Printf("Failed to run gRPC server: %v", err)
 		}
 	}()
 	t.Cleanup(func() {
@@ -76,33 +76,32 @@ type TestClient struct {
 	svc *fuse.Server
 }
 
-func runClient(t *testing.T, endpoint string) vfs.ServerProtocol {
+func runClient(endpoint string) vfs.ServerProtocol {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	assert.NoError(t, err, "Failed to connect to endpoint %s", endpoint)
+	if err != nil {
+		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
+	}
 
-	c := client.NewClient(conn)
+	c := vfs.NewClient(conn)
 	err = c.Start(context.Background())
-	assert.NoError(t, err, "Client start error")
+	if err != nil {
+		log.Fatalf("Failed to start client: %v", err)
+	}
 	go func() {
 		err := c.Run(context.Background())
 		// TODO: Assert this.
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Client run finished with error: %v", err)
-		}
+		log.Printf("Client run finished with error: %v", err)
 	}()
 
 	return c
 }
 
-func Mount(t *testing.T, server *TestServer, mode int) (string, *fuse.Server) {
-	t.Helper()
-	client := runClient(t, "dns:///"+server.Addr)
-
-	mntDir := t.TempDir()
-
+func doMount(addr, dir string, debug bool, mode int) {
+	client := runClient("dns:///" + addr)
 	root := vfs.NewDirInode(client, nil, mode, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
+	vfs.SetDebug(debug)
 	option := &fs.Options{
 		EntryTimeout:    &timeout,
 		AttrTimeout:     &timeout,
@@ -113,22 +112,92 @@ func Mount(t *testing.T, server *TestServer, mode int) (string, *fuse.Server) {
 			Name:               "mtfs",
 			MaxWrite:           1024 * 1024,
 			EnableLocks:        true,
-			Debug:              testing.Verbose(),
+			Debug:              debug,
 			//DirectMountFlags:   syscall.MS_MGC_VAL,
 		},
 		OnAdd: func(ctx context.Context) {
-			assert.NoError(t, root.Mount(ctx, "volume"), "Failed to mount")
-
+			err := root.Mount(ctx, "volume")
+			if err != nil {
+				log.Fatal(err, "Failed to mount")
+			}
 		},
 	}
-	mnt, err := fs.Mount(mntDir, root, option)
+	mnt, err := fs.Mount(dir, root, option)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatal(err)
 	}
+	// Kill by SIGTERM
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	<-sig
+	if err := mnt.Unmount(); err != nil {
+		log.Fatalf("testMount: Unmount failed: %v", err)
+	}
+}
+
+func mountMain() {
+	addr := os.Getenv("MTFS_TEST_MOUNT_ADDR")
+	dir := os.Getenv("MTFS_TEST_MOUNT_DIR")
+	debug := os.Getenv("MTFS_TEST_MOUNT_DEBUG") == "1"
+	mode, err := strconv.ParseInt(os.Getenv("MTFS_TEST_MOUNT_MODE"), 10, 32)
+	if err != nil {
+		log.Fatalf("Invalid MTFS_TEST_MOUNT_MODE: %v", err)
+	}
+	doMount(addr, dir, debug, int(mode))
+	os.Exit(0)
+}
+
+func init() {
+	if os.Getenv("MTFS_TEST_MOUNT") != "" {
+		mountMain()
+	}
+}
+
+func TestMain(m *testing.M) {
+	server.SetDebug(testing.Verbose())
+	code := m.Run()
+	os.Exit(code)
+}
+
+func Mount(t *testing.T, server *TestServer, mode int) string {
+	t.Helper()
+
+	mntDir := t.TempDir()
+	oldStat, err := os.Stat(mntDir)
+	if err != nil {
+		t.Fatalf("Failed to stat mount directory %s: %v", mntDir, err)
+	}
+	// Use a subprocess to avoid dead-locks on errors.
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "MTFS_TEST_MOUNT=1")
+	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_ADDR="+server.Addr)
+	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DIR="+mntDir)
+	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
+	if testing.Verbose() {
+		cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DEBUG=1")
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	t.Cleanup(func() {
-		if err := mnt.Unmount(); err != nil {
-			t.Fatalf("testMount: Unmount failed: %v", err)
+		if cmd.Process != nil {
+			cmd.Process.Signal(syscall.SIGTERM)
+			cmd.Process.Wait()
+			unix.Unmount(mntDir, 0)
 		}
 	})
-	return mntDir, mnt
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start mount command: %v", err)
+	}
+	// Wait until mount is ready
+	for {
+		newStat, err := os.Stat(mntDir)
+		if err != nil {
+			t.Fatalf("Failed to stat mount directory %s: %v", mntDir, err)
+		}
+		if newStat.Sys().(*syscall.Stat_t).Dev != oldStat.Sys().(*syscall.Stat_t).Dev {
+			// The mount point has changed, meaning the mount is ready.
+			break
+		}
+	}
+	return mntDir
 }

@@ -23,7 +23,7 @@ func TestFull(t *testing.T) {
 			// Setup
 			s := StartTestServer(t)
 
-			dir, _ := Mount(t, s, mode)
+			dir := Mount(t, s, mode)
 
 			assert.NoError(t, os.Mkdir(dir+"/testdir", 0755), "Mkdir should succeed")
 
@@ -56,7 +56,7 @@ func TestFull(t *testing.T) {
 
 		t.Run("TestFStat"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir, _ := Mount(t, s, mode)
+			dir := Mount(t, s, mode)
 
 			file, err := os.Create(dir + "/testfile.txt")
 			assert.NoError(t, err, "Create file should succeed")
@@ -72,7 +72,7 @@ func TestFull(t *testing.T) {
 
 		t.Run("TestListDir"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir, _ := Mount(t, s, mode)
+			dir := Mount(t, s, mode)
 
 			err := os.Mkdir(dir+"/testdir", 0755)
 			assert.NoError(t, err, "Mkdir should succeed")
@@ -91,7 +91,7 @@ func TestFull(t *testing.T) {
 
 		t.Run("TestSetAttr"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir, _ := Mount(t, s, mode)
+			dir := Mount(t, s, mode)
 
 			file, err := os.Create(dir + "/testfile.txt")
 			assert.NoError(t, err, "Create file should succeed")

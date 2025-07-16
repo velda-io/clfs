@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"velda.io/mtfs/pkg/client"
 	"velda.io/mtfs/pkg/vfs"
 )
 
@@ -32,7 +31,7 @@ func RunClient(endpoint string) vfs.ServerProtocol {
 		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
 	}
 
-	c := client.NewClient(conn)
+	c := vfs.NewClient(conn)
 	err = c.Start(context.Background())
 	if err != nil {
 		log.Fatalf("Client start error: %v", err)

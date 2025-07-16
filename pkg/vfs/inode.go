@@ -143,6 +143,31 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 	}
 }
 
+var _ = (fs.NodeOnForgetter)((*Inode)(nil))
+
+func (n *Inode) OnForget() {
+	if n.cookie == nil {
+		debugf("Forget called on Inode without cookie, ignoring")
+		return
+	}
+	debugf("Forget called on Inode with cookie %x", n.cookie)
+	request := &proto.OperationRequest{
+		Operation: &proto.OperationRequest_Forget{
+			Forget: &proto.ForgetRequest{},
+		},
+	}
+	// After all operations are completed, we will send a forget request to the server.
+	n.syncer.SetCleanup(func() {
+		n.asyncOperation(context.Background(), request, func(response *proto.OperationResponse, err error) {
+			if err != nil {
+				debugf("Forget operation failed: %v", err)
+				return
+			}
+			n.serverProtocol.UnregisterServerCallback(n.cookie)
+		})
+	})
+}
+
 // TODO: xattr
 
 func (n *Inode) doOperation(ctx context.Context, async bool, request *proto.OperationRequest, callback OpCallback) {

@@ -1,10 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"crypto/rand"
-	"encoding/binary"
-	"errors"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -54,41 +51,12 @@ func (s *session) closeFileHandle(handle []byte) {
 	}
 }
 
-func (s *session) GetCookie(node *ServerNode) []byte {
-	buf := bytes.NewBuffer(nil)
-	binary.Write(buf, binary.LittleEndian, uint64(node.nodeId))
-	data := buf.Bytes()
-	// TODO: Encrypt the data to avoid spoofing.
-	return data
-}
-
-var ErrInvalidCookie = errors.New("invalid cookie")
-
-func (s *session) DecodeCookie(cookie []byte) (*ServerNode, error) {
-	if len(cookie) < 8 {
-		return nil, ErrInvalidCookie
-	}
-	var nodeId uint64
-	buf := bytes.NewBuffer(cookie)
-	if err := binary.Read(buf, binary.LittleEndian, &nodeId); err != nil {
-		return nil, ErrInvalidCookie
-	}
-	if buf.Len() != 0 {
-		return nil, ErrInvalidCookie
-	}
-	node := s.volume.GetNodeById(int64(nodeId))
-	if node == nil {
-		return nil, ErrInvalidCookie
-	}
-	return node, nil
-}
-
 func (sess *session) HandleOp(req *proto.OperationRequest) {
 	node, err := sess.DecodeCookie(req.Cookie)
 	if err != nil {
 		sess.stream.Send(&proto.OperationResponse{
 			Error: &proto.ErrorResponse{
-				DetailMsg: "Invalid cookie",
+				DetailMsg: err.Error(),
 				Code:      int32(unix.EINVAL),
 			},
 		})
@@ -115,4 +83,12 @@ func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	if err := sess.stream.Send(resp); err != nil {
 		debugf("Stream failure: %v", err)
 	}
+}
+
+func (sess *session) DecodeCookie(cookie []byte) (*ServerNode, error) {
+	return sess.volume.DecodeCookie(cookie)
+}
+
+func (s *session) GetCookie(node *ServerNode) []byte {
+	return s.volume.GetCookie(node)
 }

@@ -137,7 +137,6 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 }
 
 func (n *FileInode) Flush(ctx context.Context, fh fs.FileHandle) syscall.Errno {
-	return fs.OK
 	lfh := fh.(*fileHandle)
 	lfh.Wait.Wait() // Wait for any pending writes to complete
 	if lfh.writeErr != nil {
@@ -152,8 +151,6 @@ func (n *FileInode) Fsync(ctx context.Context, fh fs.FileHandle, flags uint32) s
 }
 
 func (n *FileInode) Release(ctx context.Context, fh fs.FileHandle) syscall.Errno {
-	// TODO: Revert this.
-	return fs.OK
 	lfh := fh.(*fileHandle)
 	if lfh.handle == nil {
 		return fs.OK // Nothing to release

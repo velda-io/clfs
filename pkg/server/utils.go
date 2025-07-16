@@ -40,7 +40,7 @@ func ToErrno(err error) syscall.Errno {
 	if errors.As(err, &errno) {
 		return errno
 	}
-	debugf("can't convert error type:", err)
+	debugf("can't convert error type: %v", err)
 	return syscall.ENOSYS
 }
 

@@ -1,4 +1,4 @@
-package client
+package vfs
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 
 	"google.golang.org/grpc"
 	"velda.io/mtfs/pkg/proto"
-	"velda.io/mtfs/pkg/vfs"
 )
 
 type Client struct {
@@ -18,15 +17,15 @@ type Client struct {
 	stream    proto.MtfsService_ServeClient
 	mu        sync.Mutex // Protects the stream
 	reqId     int64
-	callbacks map[int64]vfs.OpCallback      // Map of cookie to callback
-	notifies  map[string]vfs.ServerCallback // Map of cookie to server callback
+	callbacks map[int64]OpCallback      // Map of cookie to callback
+	notifies  map[string]ServerCallback // Map of cookie to server callback
 }
 
 func NewClient(conn *grpc.ClientConn) *Client {
 	return &Client{
 		client:    proto.NewMtfsServiceClient(conn),
-		callbacks: make(map[int64]vfs.OpCallback),
-		notifies:  make(map[string]vfs.ServerCallback),
+		callbacks: make(map[int64]OpCallback),
+		notifies:  make(map[string]ServerCallback),
 	}
 }
 
@@ -43,6 +42,7 @@ func (c *Client) Run(ctx context.Context) error {
 	stream := c.stream
 	for {
 		response, err := stream.Recv()
+		debugf("Received response: %v", response)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 				return nil
@@ -74,13 +74,14 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
-func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback vfs.OpCallback) int64 {
+func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64 {
 	c.mu.Lock()
 	c.reqId++
 	id := c.reqId
 	c.callbacks[id] = callback
 	c.mu.Unlock()
 	request.SeqId = id
+	debugf("Enqueuing operation %d: %v", id, request)
 	err := c.stream.Send(request)
 	if err != nil {
 		log.Printf("Failed to send %d: %v", c.reqId, err)
@@ -88,7 +89,7 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback vfs.
 	return id
 }
 
-func (c *Client) RegisterServerCallback(cookie []byte, callback vfs.ServerCallback) {
+func (c *Client) RegisterServerCallback(cookie []byte, callback ServerCallback) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.notifies[string(cookie)] = callback

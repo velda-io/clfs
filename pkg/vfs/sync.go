@@ -37,6 +37,7 @@ type syncer struct {
 	writerActive bool
 	readers      int
 	asyncOps     int
+	cleanup      func()
 }
 
 func NewSyncer() *syncer {
@@ -101,6 +102,10 @@ func (s *syncer) Complete(op *operation) {
 	}
 	s.checkClaimUpdates()
 	s.cond.Broadcast()
+	if s.cleanup != nil && s.emptyLocked() && s.writerWait == 0 {
+		s.cleanup()
+		s.cleanup = nil // Clear cleanup to avoid multiple calls
+	}
 }
 
 // Called when async operations are completed.
@@ -115,6 +120,10 @@ func (s *syncer) CompleteAsync(op *operation) {
 	defer s.mu.Unlock()
 	s.asyncOps--
 	s.checkClaimUpdates()
+	if s.cleanup != nil && s.emptyLocked() && s.writerWait == 0 {
+		s.cleanup()
+		s.cleanup = nil // Clear cleanup to avoid multiple calls
+	}
 }
 
 func (s *syncer) UpgradeClaim(newFlag int) {
@@ -132,7 +141,7 @@ func (s *syncer) UpgradeClaim(newFlag int) {
 }
 
 func (s *syncer) checkClaimUpdates() {
-	if s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 && s.emptyLocked() && s.asyncOps == 0 {
+	if s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 && s.emptyLocked() {
 		if s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 {
 			s.flags &^= (SYNC_EXCLUSIVE_WRITE_GRANTED | SYNC_LOCK_READ_GRANTED)
 			s.flags |= SYNC_EXCLUSIVE_WRITE
@@ -144,5 +153,11 @@ func (s *syncer) checkClaimUpdates() {
 }
 
 func (s *syncer) emptyLocked() bool {
-	return s.readers == 0 && !s.writerActive
+	return s.readers == 0 && !s.writerActive && s.asyncOps == 0
+}
+
+func (s *syncer) SetCleanup(cleanup func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanup = cleanup
 }

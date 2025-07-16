@@ -21,9 +21,12 @@ const (
 // ServerNode represents a file or directory on the server.
 type ServerNode struct {
 	volume *Volume
+	fh     unix.FileHandle
 	fd     int // File descriptor for the node
-	nodeId int64
+	nodeId uint64
 	mode   uint32
+	// Protected by volume's mu
+	ref int
 }
 
 func (n *ServerNode) Close() {

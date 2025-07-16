@@ -40,6 +40,7 @@ message OperationRequest {
     CreateRequest create = 17; // Request to create a file
 
     MountRequest mount = 18; // Request to mount a filesystem
+    UmountRequest umount = 19; // Request to unmount a filesystem
   }
 }
 
@@ -53,31 +54,32 @@ message OperationResponse {
   // Sequence ID of the request, 0 if it's notification from the server
   int64 seq_id = 1;
   bytes cookie = 2; // Cookie for the identity of the inode.
+  ErrorResponse error = 3; // Error response if the operation failed
   oneof response {
     // Notifications from the server.
-    ClaimUpdateServerRequest claim_update = 6; // Claim update request
+    ClaimUpdateServerRequest claim_update = 4; // Claim update request
 
-    MkdirResponse mkdir = 3;
-    LookupResponse lookup = 4;
-    GetAttrResponse get_attr = 5;
-    MknodResponse mknod = 7;
-    RmdirResponse rmdir = 8;        // Response to remove a directory
-    UnlinkResponse unlink = 9;      // Response to remove a file
-    SymlinkResponse symlink = 10;   // Response to create a symlink
-    ReadlinkResponse readlink = 11; // Response to read a symlink
+    MkdirResponse mkdir = 5;
+    LookupResponse lookup = 6;
+    GetAttrResponse get_attr = 7;
+    MknodResponse mknod = 8;
+    RmdirResponse rmdir = 9;        // Response to remove a directory
+    UnlinkResponse unlink = 10;      // Response to remove a file
+    SymlinkResponse symlink = 11;   // Response to create a symlink
+    ReadlinkResponse readlink = 12; // Response to read a symlink
     SetAttrResponse set_attr =
-        12; // Response to set attributes of a file or directory
-    ScanDirectoryResponse scan_dir = 13; // Response to scan a directory
+        13; // Response to set attributes of a file or directory
+    ScanDirectoryResponse scan_dir = 14; // Response to scan a directory
 
-    OpenResponse open = 14;     // Response to open a file
-    ReadResponse read = 15;     // Response to read from a file
-    WriteResponse write = 16;   // Response to write to a file
-    CloseResponse close = 17;   // Response to close a file
-    CreateResponse create = 18; // Response to create a file
+    OpenResponse open = 15;     // Response to open a file
+    ReadResponse read = 16;     // Response to read from a file
+    WriteResponse write = 17;   // Response to write to a file
+    CloseResponse close = 18;   // Response to close a file
+    CreateResponse create = 19; // Response to create a file
 
-    MountResponse mount = 19; // Response to mount a filesystem
+    MountResponse mount = 20; // Response to mount a filesystem
+    UmountResponse umount = 21; // Response to unmount a filesystem
   }
-  ErrorResponse error = 20; // Error response if the operation failed
 }
 
 message MkdirRequest {
@@ -215,6 +217,10 @@ message CloseResponse {
 }
 message ClaimUpdateServerRequest {
   ClaimStatus status = 1; // Status of the claim update
+}
+message UmountRequest {
+}
+message UmountResponse {
 }
 
 message MountRequest {
