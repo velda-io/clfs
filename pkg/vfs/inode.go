@@ -37,6 +37,8 @@ type Inode struct {
 	cachedStat *proto.FileStat
 }
 
+var _ = (InodeInterface)((*Inode)(nil))
+
 func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) {
 	n.serverProtocol = serverProtocol
 	n.cookie = cookie
@@ -47,6 +49,10 @@ func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGr
 	if cookie != nil {
 		serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
 	}
+}
+
+func (n *Inode) inode() *Inode {
+	return n
 }
 
 var _ = (fs.NodeGetattrer)((*Inode)(nil))

@@ -18,6 +18,7 @@ type FileInode struct {
 func NewFileInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *FileInode {
 	n := &FileInode{}
 	n.init(serverProtocol, cookie, initialSyncGrants, initialStat)
+	n.syncer.SetOnRevoked(n)
 	return n
 }
 
@@ -27,6 +28,7 @@ var _ = (fs.NodeWriter)((*FileInode)(nil))
 var _ = (fs.NodeFlusher)((*FileInode)(nil))
 var _ = (fs.NodeFsyncer)((*FileInode)(nil))
 var _ = (fs.NodeReleaser)((*FileInode)(nil))
+var _ = (hasOnRevoked)((*FileInode)(nil))
 
 func (n *FileInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	var op *operation
@@ -104,6 +106,7 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 
 	if op.Async() {
 		n.cache.Insert(offset, data)
+		n.syncer.StartAsync(op)
 	}
 	newSize := uint64(offset + int64(len(data)))
 	if n.cachedStat.Size < newSize {
@@ -125,6 +128,9 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 				},
 			},
 			func(response *proto.OperationResponse, err error) {
+				if op.Async() {
+					n.syncer.CompleteAsync(op)
+				}
 				defer lfh.Wait.Done()
 				if err != nil {
 					lfh.writeErr = err
@@ -180,6 +186,11 @@ func (n *FileInode) Release(ctx context.Context, fh fs.FileHandle) syscall.Errno
 	})
 
 	return fs.OK
+}
+
+func (n *FileInode) OnRevoked(lastFlag int) {
+	n.cache.Clear()
+	n.serverProtocol.UnregisterServerCallback(n.cookie)
 }
 
 type fileCallback func(handle []byte, err error)

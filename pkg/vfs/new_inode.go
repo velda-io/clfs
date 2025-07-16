@@ -10,6 +10,7 @@ import (
 type InodeInterface interface {
 	ResolveCookie(cookie []byte)
 	handleClaimUpdate(proto.ClaimStatus)
+	inode() *Inode
 }
 
 func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) fs.InodeEmbedder {

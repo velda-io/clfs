@@ -44,10 +44,8 @@ func TestFull(t *testing.T) {
 			assert.NoError(t, err, "Read second file should succeed")
 			assert.Equal(t, "Another file content", string(content), "Second file content should match written data")
 
-			/*
-				err = os.RemoveAll(dir + "/testdir")
-				assert.NoError(t, err, "Remove directory should succeed")
-			*/
+			err = os.RemoveAll(dir + "/testdir")
+			assert.NoError(t, err, "Remove directory should succeed")
 		})
 
 		t.Run("TestPersist"+tt.name, func(t *testing.T) {

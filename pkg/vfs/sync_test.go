@@ -332,7 +332,7 @@ func TestSyncerRevokeClaim(t *testing.T) {
 			defer s.Complete(op3)
 			wg.Done()
 		}()
-
+		s.StartAsync(op1)
 		s.Complete(op1)
 		time.Sleep(100 * time.Millisecond) // Verify being blocked
 		assert.Nil(t, op2, "Write operation should not start while upgrade is pending")

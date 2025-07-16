@@ -86,6 +86,7 @@ func (n *DirInode) Mkdir(ctx context.Context, name string, mode uint32, out *fus
 		newFileStat(ctx, &out.Attr, mode|syscall.S_IFDIR)
 		stat := StatProtoFromAttr(&out.Attr)
 		node := NewDirInode(n.serverProtocol, nil, SYNC_EXCLUSIVE_WRITE, stat)
+		n.syncer.StartAsync(op)
 		n.asyncOperation(
 			ctx,
 			&proto.OperationRequest{
@@ -146,6 +147,7 @@ func (n *DirInode) Mknod(ctx context.Context, name string, mode uint32, dev uint
 		out.Attr.Rdev = dev
 		stat := StatProtoFromAttr(&out.Attr)
 		node := NewInode(n.serverProtocol, nil, SYNC_EXCLUSIVE_WRITE, stat)
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_Mknod{Mknod: &proto.MknodRequest{
 				Name: name,
@@ -203,23 +205,29 @@ func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 		if child == nil {
 			return syscall.ENOENT
 		}
-		childNode, ok := child.Operations().(*Inode)
+		childNode, ok := child.Operations().(*DirInode)
 		if !ok {
 			return syscall.EINVAL
 		}
-		checkChildEmpty := func() bool {
+		childEmptyValid := false
+		childEmpty := false
+		func() {
 			op := childNode.syncer.StartRead()
 			defer childNode.syncer.Complete(op)
-			if op.Async() {
-				return len(child.Children()) == 0
+			if op.Async() && childNode.hasFullData {
+				childEmpty = len(childNode.Children()) == 0
+				childEmptyValid = true
 			}
-			// TODO: ReadDir
-			return true
 		}()
-		if !checkChildEmpty {
-			return syscall.ENOTEMPTY
+		if !childEmptyValid {
+			// Use sync-operation to delete from the server.
+			break
+		}
+		if !childEmpty {
+			return syscall.ENOTEMPTY // Directory is not empty
 		}
 
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_Rmdir{Rmdir: &proto.RmdirRequest{
 				Name: name,
@@ -261,18 +269,21 @@ func (n *DirInode) Unlink(ctx context.Context, name string) syscall.Errno {
 		child := n.GetChild(name)
 		if child == nil && !n.hasFullData {
 			// Sync
+			debugf("Unlink: Child %s not found, no full data", name)
 			return syscall.ENOENT
 		}
 		if child == nil {
+			debugf("Unlink: Child %s not found, has full data", name)
 			return syscall.ENOENT
 		}
-		childNode, ok := child.Operations().(*Inode)
+		childNode, ok := child.Operations().(InodeInterface)
 		if !ok {
 			return syscall.EINVAL
 		}
-		if childNode.cachedStat.Mode&syscall.S_IFDIR != 0 {
+		if childNode.inode().cachedStat.Mode&syscall.S_IFDIR != 0 {
 			return syscall.EISDIR // Cannot unlink a directory
 		}
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_Unlink{Unlink: &proto.UnlinkRequest{
 				Name: name,
@@ -315,6 +326,7 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 		newFileStat(ctx, &out.Attr, syscall.S_IFLNK|0777) // Symlink mode
 		stat := StatProtoFromAttr(&out.Attr)
 		node := NewLinkNode(n.serverProtocol, nil, SYNC_LOCK_READ, []byte(pointedTo), stat)
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_Symlink{Symlink: &proto.SymlinkRequest{
 				Name:   linkName,
@@ -382,6 +394,7 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 			handle: nil,
 			flags:  flags,
 		}
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_Create{Create: &proto.CreateRequest{
 				Name:  name,
@@ -463,6 +476,7 @@ var _ = (fs.NodeOpendirHandler)((*DirInode)(nil))
 func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
 	// TODO: Exclusive read?
 	op := n.syncer.StartRead()
+	defer n.syncer.Complete(op)
 	if op.Async() && n.hasFullData {
 		defer n.syncer.Complete(op)
 		allChildren := n.Children()
@@ -478,16 +492,14 @@ func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileH
 		return &cachedDirStream{
 			idx:     0,
 			entries: list,
-			op:      op,
 			inode:   n,
 		}, 0, 0
 	}
-	return &DirStream{inode: n, op: op}, 0, 0
+	return &DirStream{inode: n}, 0, 0
 }
 
 type DirStreamCloser struct {
 	DirStream
-	op *operation
 }
 
 type DirStream struct {

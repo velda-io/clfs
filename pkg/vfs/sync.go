@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -14,8 +15,9 @@ type hasOnRevoked interface {
 }
 
 type operation struct {
-	readonly bool // Indicates if the operation is read-only
-	async    bool
+	readonly     bool // Indicates if the operation is read-only
+	async        bool
+	startedAsync bool
 }
 
 func (o *operation) Async() bool {
@@ -72,10 +74,21 @@ func (s *syncer) StartWrite() *operation {
 		readonly: false,
 		async:    s.flags&SYNC_EXCLUSIVE_WRITE != 0,
 	}
-	if op.async {
-		s.asyncOps++
-	}
 	return op
+}
+
+func (s *syncer) StartAsync(op *operation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !op.async {
+		panic("Operation is not async")
+	}
+	if op.startedAsync {
+		panic("Operation already started async")
+	}
+	op.startedAsync = true
+	s.asyncOps++
 }
 
 func (s *syncer) StartRead() *operation {
@@ -120,7 +133,7 @@ func (s *syncer) CompleteAsync(op *operation) {
 	if op == nil {
 		return
 	}
-	if !op.async {
+	if !op.startedAsync {
 		panic("CompleteAsync called on a non-async operation")
 	}
 	s.mu.Lock()
@@ -160,4 +173,12 @@ func (s *syncer) SetOnRevoked(callback hasOnRevoked) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.notif = callback
+}
+
+func (s *syncer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return fmt.Sprintf("Syncer{flags: %b, desiredFlags: %b, writerWait: %d, writerActive: %t, readers: %d, asyncOps: %d}",
+		s.flags, s.desiredFlags, s.writerWait, s.writerActive, s.readers, s.asyncOps)
 }
