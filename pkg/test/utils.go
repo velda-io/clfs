@@ -77,7 +77,7 @@ type TestClient struct {
 	svc *fuse.Server
 }
 
-func runClient(endpoint string) *vfs.Client {
+func runClient(endpoint string, latency time.Duration) *vfs.Client {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
@@ -88,6 +88,9 @@ func runClient(endpoint string) *vfs.Client {
 	if err != nil {
 		log.Fatalf("Failed to start client: %v", err)
 	}
+	if latency > 0 {
+		c.Stream = NewLatencyInjectedStream(c.Stream, latency)
+	}
 	go func() {
 		err := c.Run(context.Background())
 		// TODO: Assert this.
@@ -97,8 +100,8 @@ func runClient(endpoint string) *vfs.Client {
 	return c
 }
 
-func doMount(addr, dir string, debug bool, mode int) {
-	client := runClient("dns:///" + addr)
+func doMount(addr, dir string, debug bool, mode int, latency time.Duration) {
+	client := runClient("dns:///"+addr, latency)
 	root := vfs.NewDirInode(client, nil, mode, vfs.DefaultRootStat())
 	timeout := 60 * time.Second
 	negativeTimeout := 10 * time.Second
@@ -152,10 +155,11 @@ func mountMain() {
 	dir := os.Getenv("MTFS_TEST_MOUNT_DIR")
 	debug := os.Getenv("MTFS_TEST_MOUNT_DEBUG") == "1"
 	mode, err := strconv.ParseInt(os.Getenv("MTFS_TEST_MOUNT_MODE"), 10, 32)
+	latency, err := strconv.ParseInt(os.Getenv("MTFS_TEST_MOUNT_LATENCY"), 10, 32)
 	if err != nil {
 		log.Fatalf("Invalid MTFS_TEST_MOUNT_MODE: %v", err)
 	}
-	doMount(addr, dir, debug, int(mode))
+	doMount(addr, dir, debug, int(mode), time.Duration(latency)*time.Millisecond)
 	os.Exit(0)
 }
 
@@ -171,14 +175,14 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func Mount(t *testing.T, server *TestServer, mode int) string {
+func Mount(t *testing.T, server *TestServer, mode int, latency time.Duration) string {
 	t.Helper()
-	mntDir, stop := MountOne(t, server, mode)
+	mntDir, stop := MountOne(t, server, mode, latency)
 	t.Cleanup(stop)
 	return mntDir
 }
 
-func MountOne(t *testing.T, server *TestServer, mode int) (string, func()) {
+func MountOne(t *testing.T, server *TestServer, mode int, latency time.Duration) (string, func()) {
 	t.Helper()
 
 	mntDir := t.TempDir()
@@ -192,6 +196,7 @@ func MountOne(t *testing.T, server *TestServer, mode int) (string, func()) {
 	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_ADDR="+server.Addr)
 	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DIR="+mntDir)
 	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
+	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
 	if testing.Verbose() {
 		cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DEBUG=1")
 	}
@@ -214,6 +219,7 @@ func MountOne(t *testing.T, server *TestServer, mode int) (string, func()) {
 			// The mount point has changed, meaning the mount is ready.
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	return mntDir, stop
 }

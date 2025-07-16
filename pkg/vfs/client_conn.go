@@ -14,7 +14,7 @@ import (
 
 type Client struct {
 	client            proto.MtfsServiceClient
-	stream            proto.MtfsService_ServeClient
+	Stream            proto.MtfsService_ServeClient
 	mu                sync.Mutex // Protects the stream
 	shutdownCond      *sync.Cond // Condition variable to signal shutdown
 	shutdown          bool       // Indicates if the client is shutdown
@@ -40,12 +40,12 @@ func (c *Client) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	c.stream = stream
+	c.Stream = stream
 	return nil
 }
 
 func (c *Client) Run(ctx context.Context) error {
-	stream := c.stream
+	stream := c.Stream
 	for {
 		c.mu.Lock()
 		c.inCallback = 0
@@ -100,7 +100,7 @@ func (c *Client) Shutdown() {
 	for len(c.callbacks) != 0 || c.inCallback > 0 {
 		c.shutdownCond.Wait() // Wait for shutdown to complete
 	}
-	c.stream.CloseSend()
+	c.Stream.CloseSend()
 }
 
 func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64 {
@@ -116,7 +116,7 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback OpCa
 	c.mu.Unlock()
 	request.SeqId = id
 	debugf("Enqueuing operation %d: %v", id, request)
-	err := c.stream.Send(request)
+	err := c.Stream.Send(request)
 	if err != nil {
 		log.Printf("Failed to send %d: %v", c.reqId, err)
 	}
