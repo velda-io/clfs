@@ -12,8 +12,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"velda.io/mtfs/pkg/proto"
-	"velda.io/mtfs/pkg/server"
+	"velda.io/clfs/pkg/proto"
+	"velda.io/clfs/pkg/server"
 )
 
 func main() {
@@ -44,8 +44,8 @@ func main() {
 	volumes[*volumeName] = volume
 
 	grpcServer := grpc.NewServer()
-	service := server.NewMtfsServiceServer(volumes)
-	proto.RegisterMtfsServiceServer(grpcServer, service)
+	service := server.NewClfsServiceServer(volumes)
+	proto.RegisterClfsServiceServer(grpcServer, service)
 
 	// Handle termination signals
 	stop := make(chan os.Signal, 1)

@@ -8,7 +8,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"github.com/stretchr/testify/mock"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 // MockServerProtocol is a mock implementation of ServerProtocol for testing

@@ -19,28 +19,28 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MtfsService_Serve_FullMethodName = "/mtfs.MtfsService/Serve"
+	ClfsService_Serve_FullMethodName = "/clfs.ClfsService/Serve"
 )
 
-// MtfsServiceClient is the client API for MtfsService service.
+// ClfsServiceClient is the client API for ClfsService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type MtfsServiceClient interface {
-	// Creates a working connection to the MTFS service.
+type ClfsServiceClient interface {
+	// Creates a working connection to the CLFS service.
 	Serve(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OperationRequest, OperationResponse], error)
 }
 
-type mtfsServiceClient struct {
+type clfsServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMtfsServiceClient(cc grpc.ClientConnInterface) MtfsServiceClient {
-	return &mtfsServiceClient{cc}
+func NewClfsServiceClient(cc grpc.ClientConnInterface) ClfsServiceClient {
+	return &clfsServiceClient{cc}
 }
 
-func (c *mtfsServiceClient) Serve(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OperationRequest, OperationResponse], error) {
+func (c *clfsServiceClient) Serve(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OperationRequest, OperationResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MtfsService_ServiceDesc.Streams[0], MtfsService_Serve_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ClfsService_ServiceDesc.Streams[0], ClfsService_Serve_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -49,66 +49,66 @@ func (c *mtfsServiceClient) Serve(ctx context.Context, opts ...grpc.CallOption) 
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MtfsService_ServeClient = grpc.BidiStreamingClient[OperationRequest, OperationResponse]
+type ClfsService_ServeClient = grpc.BidiStreamingClient[OperationRequest, OperationResponse]
 
-// MtfsServiceServer is the server API for MtfsService service.
-// All implementations must embed UnimplementedMtfsServiceServer
+// ClfsServiceServer is the server API for ClfsService service.
+// All implementations must embed UnimplementedClfsServiceServer
 // for forward compatibility.
-type MtfsServiceServer interface {
-	// Creates a working connection to the MTFS service.
+type ClfsServiceServer interface {
+	// Creates a working connection to the CLFS service.
 	Serve(grpc.BidiStreamingServer[OperationRequest, OperationResponse]) error
-	mustEmbedUnimplementedMtfsServiceServer()
+	mustEmbedUnimplementedClfsServiceServer()
 }
 
-// UnimplementedMtfsServiceServer must be embedded to have
+// UnimplementedClfsServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMtfsServiceServer struct{}
+type UnimplementedClfsServiceServer struct{}
 
-func (UnimplementedMtfsServiceServer) Serve(grpc.BidiStreamingServer[OperationRequest, OperationResponse]) error {
+func (UnimplementedClfsServiceServer) Serve(grpc.BidiStreamingServer[OperationRequest, OperationResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Serve not implemented")
 }
-func (UnimplementedMtfsServiceServer) mustEmbedUnimplementedMtfsServiceServer() {}
-func (UnimplementedMtfsServiceServer) testEmbeddedByValue()                     {}
+func (UnimplementedClfsServiceServer) mustEmbedUnimplementedClfsServiceServer() {}
+func (UnimplementedClfsServiceServer) testEmbeddedByValue()                     {}
 
-// UnsafeMtfsServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MtfsServiceServer will
+// UnsafeClfsServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ClfsServiceServer will
 // result in compilation errors.
-type UnsafeMtfsServiceServer interface {
-	mustEmbedUnimplementedMtfsServiceServer()
+type UnsafeClfsServiceServer interface {
+	mustEmbedUnimplementedClfsServiceServer()
 }
 
-func RegisterMtfsServiceServer(s grpc.ServiceRegistrar, srv MtfsServiceServer) {
-	// If the following call pancis, it indicates UnimplementedMtfsServiceServer was
+func RegisterClfsServiceServer(s grpc.ServiceRegistrar, srv ClfsServiceServer) {
+	// If the following call pancis, it indicates UnimplementedClfsServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MtfsService_ServiceDesc, srv)
+	s.RegisterService(&ClfsService_ServiceDesc, srv)
 }
 
-func _MtfsService_Serve_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MtfsServiceServer).Serve(&grpc.GenericServerStream[OperationRequest, OperationResponse]{ServerStream: stream})
+func _ClfsService_Serve_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ClfsServiceServer).Serve(&grpc.GenericServerStream[OperationRequest, OperationResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MtfsService_ServeServer = grpc.BidiStreamingServer[OperationRequest, OperationResponse]
+type ClfsService_ServeServer = grpc.BidiStreamingServer[OperationRequest, OperationResponse]
 
-// MtfsService_ServiceDesc is the grpc.ServiceDesc for MtfsService service.
+// ClfsService_ServiceDesc is the grpc.ServiceDesc for ClfsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MtfsService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "mtfs.MtfsService",
-	HandlerType: (*MtfsServiceServer)(nil),
+var ClfsService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "clfs.ClfsService",
+	HandlerType: (*ClfsServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Serve",
-			Handler:       _MtfsService_Serve_Handler,
+			Handler:       _ClfsService_Serve_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

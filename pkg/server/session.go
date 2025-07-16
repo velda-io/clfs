@@ -5,14 +5,14 @@ import (
 	"sync"
 
 	"golang.org/x/sys/unix"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 type NotifyCallback func(*proto.OperationRequest, error)
 type session struct {
 	volume      *Volume // The volume this session is associated with
 	streamMu    sync.RWMutex
-	stream      proto.MtfsService_ServeServer
+	stream      proto.ClfsService_ServeServer
 	fileHandles map[string]int // map file handle to fd
 	fhMu        sync.Mutex
 
@@ -25,7 +25,7 @@ type session struct {
 	notifyCallback map[int64]NotifyCallback // Map of notify ID to callback
 }
 
-func NewSession(stream proto.MtfsService_ServeServer, volume *Volume) *session {
+func NewSession(stream proto.ClfsService_ServeServer, volume *Volume) *session {
 	return &session{
 		volume:       volume,
 		stream:       stream,

@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 type queuedItem struct {
@@ -13,14 +13,14 @@ type queuedItem struct {
 }
 
 type LatencyInjectedStream struct {
-	proto.MtfsService_ServeClient
+	proto.ClfsService_ServeClient
 	latency time.Duration
 	ch      chan *queuedItem
 }
 
-func NewLatencyInjectedStream(stream proto.MtfsService_ServeClient, latency time.Duration) *LatencyInjectedStream {
+func NewLatencyInjectedStream(stream proto.ClfsService_ServeClient, latency time.Duration) *LatencyInjectedStream {
 	s := &LatencyInjectedStream{
-		MtfsService_ServeClient: stream,
+		ClfsService_ServeClient: stream,
 		latency:                 latency,
 		ch:                      make(chan *queuedItem, 5000), // Buffered channel to hold requests
 	}
@@ -39,7 +39,7 @@ func (s *LatencyInjectedStream) Send(req *proto.OperationRequest) error {
 
 func (s *LatencyInjectedStream) CloseSend() error {
 	close(s.ch)                                  // Close the channel to signal no more requests
-	return s.MtfsService_ServeClient.CloseSend() // Call the original CloseSend
+	return s.ClfsService_ServeClient.CloseSend() // Call the original CloseSend
 }
 
 func (s *LatencyInjectedStream) Run() {
@@ -50,7 +50,7 @@ func (s *LatencyInjectedStream) Run() {
 			return
 		}
 		time.Sleep(time.Until(item.time))
-		if err := s.MtfsService_ServeClient.Send(item.req); err != nil {
+		if err := s.ClfsService_ServeClient.Send(item.req); err != nil {
 			log.Fatalf("Failed to send request: %v", err)
 			return
 		}

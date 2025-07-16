@@ -6,28 +6,28 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
-type MtfsServiceServer struct {
-	proto.UnimplementedMtfsServiceServer
+type ClfsServiceServer struct {
+	proto.UnimplementedClfsServiceServer
 
 	volumes map[string]*Volume
 }
 
-func NewMtfsServiceServer(volumes map[string]*Volume) *MtfsServiceServer {
-	return &MtfsServiceServer{
+func NewClfsServiceServer(volumes map[string]*Volume) *ClfsServiceServer {
+	return &ClfsServiceServer{
 		volumes: volumes,
 	}
 }
 
-func (s *MtfsServiceServer) Run(nproc int) {
+func (s *ClfsServiceServer) Run(nproc int) {
 }
 
-func (s *MtfsServiceServer) Shutdown() {
+func (s *ClfsServiceServer) Shutdown() {
 }
 
-func (s *MtfsServiceServer) Serve(stream proto.MtfsService_ServeServer) (e error) {
+func (s *ClfsServiceServer) Serve(stream proto.ClfsService_ServeServer) (e error) {
 	defer func() {
 		if e != nil {
 			log.Printf("Exiting with err %v", e)

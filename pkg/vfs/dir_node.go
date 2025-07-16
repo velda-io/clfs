@@ -6,7 +6,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 type DirInode struct {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 func StatProtoFromAttr(attr *fuse.Attr) *proto.FileStat {

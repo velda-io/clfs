@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package mtfs;
+package clfs;
 
 import "dirnode.proto";
 
-option go_package = "velda.io/mtfs/pkg/proto";
+option go_package = "velda.io/clfs/pkg/proto";
 // protolint:disable ENUM_FIELD_NAMES_PREFIX
 enum ClaimStatus {
   CLAIM_STATUS_UNSPECIFIED = 0;             // Unspecified claim status
@@ -245,7 +245,7 @@ message MountResponse {
   ClaimStatus claim = 3; // Claim status of the mount point
 }
 
-service MtfsService {
-  // Creates a working connection to the MTFS service.
+service ClfsService {
+  // Creates a working connection to the CLFS service.
   rpc Serve(stream OperationRequest) returns (stream OperationResponse) {}
 }

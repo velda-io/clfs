@@ -6,7 +6,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 const (

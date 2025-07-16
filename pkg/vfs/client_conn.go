@@ -9,12 +9,12 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 type Client struct {
-	client            proto.MtfsServiceClient
-	Stream            proto.MtfsService_ServeClient
+	client            proto.ClfsServiceClient
+	Stream            proto.ClfsService_ServeClient
 	mu                sync.Mutex // Protects the stream
 	shutdownCond      *sync.Cond // Condition variable to signal shutdown
 	shutdown          bool       // Indicates if the client is shutdown
@@ -27,7 +27,7 @@ type Client struct {
 
 func NewClient(conn *grpc.ClientConn) *Client {
 	c := &Client{
-		client:    proto.NewMtfsServiceClient(conn),
+		client:    proto.NewClfsServiceClient(conn),
 		callbacks: make(map[int64]OpCallback),
 		notifies:  make(map[string]ServerCallback),
 	}

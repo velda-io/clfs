@@ -16,18 +16,18 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"velda.io/mtfs/pkg/proto"
-	"velda.io/mtfs/pkg/server"
-	"velda.io/mtfs/pkg/vfs"
+	"velda.io/clfs/pkg/proto"
+	"velda.io/clfs/pkg/server"
+	"velda.io/clfs/pkg/vfs"
 )
 
 type TestServer struct {
 	Addr string
-	svc  *server.MtfsServiceServer
+	svc  *server.ClfsServiceServer
 }
 
 func StartTestServer(t *testing.T) *TestServer {
-	//path, _ := os.MkdirTemp("", "mtfs-test-server")
+	//path, _ := os.MkdirTemp("", "clfs-test-server")
 	path := t.TempDir()
 	t.Log("Test server path:", path)
 	return StartTestServerWithPath(t, path)
@@ -49,8 +49,8 @@ func StartTestServerWithPath(t *testing.T, path string) *TestServer {
 	volumes["volume"] = volume
 
 	grpcServer := grpc.NewServer()
-	service := server.NewMtfsServiceServer(volumes)
-	proto.RegisterMtfsServiceServer(grpcServer, service)
+	service := server.NewClfsServiceServer(volumes)
+	proto.RegisterClfsServiceServer(grpcServer, service)
 
 	// Handle termination signals
 	stop := make(chan os.Signal, 1)
@@ -113,7 +113,7 @@ func doMount(addr, dir string, debug bool, mode int, latency time.Duration) {
 		MountOptions: fuse.MountOptions{
 			//AllowOther:         true,
 			DisableReadDirPlus: true,
-			Name:               "mtfs",
+			Name:               "clfs",
 			MaxWrite:           1024 * 1024,
 			EnableLocks:        true,
 			Debug:              debug,
@@ -151,20 +151,20 @@ func doMount(addr, dir string, debug bool, mode int, latency time.Duration) {
 }
 
 func mountMain() {
-	addr := os.Getenv("MTFS_TEST_MOUNT_ADDR")
-	dir := os.Getenv("MTFS_TEST_MOUNT_DIR")
-	debug := os.Getenv("MTFS_TEST_MOUNT_DEBUG") == "1"
-	mode, err := strconv.ParseInt(os.Getenv("MTFS_TEST_MOUNT_MODE"), 10, 32)
-	latency, err := strconv.ParseInt(os.Getenv("MTFS_TEST_MOUNT_LATENCY"), 10, 32)
+	addr := os.Getenv("CLFS_TEST_MOUNT_ADDR")
+	dir := os.Getenv("CLFS_TEST_MOUNT_DIR")
+	debug := os.Getenv("CLFS_TEST_MOUNT_DEBUG") == "1"
+	mode, err := strconv.ParseInt(os.Getenv("CLFS_TEST_MOUNT_MODE"), 10, 32)
+	latency, err := strconv.ParseInt(os.Getenv("CLFS_TEST_MOUNT_LATENCY"), 10, 32)
 	if err != nil {
-		log.Fatalf("Invalid MTFS_TEST_MOUNT_MODE: %v", err)
+		log.Fatalf("Invalid CLFS_TEST_MOUNT_MODE: %v", err)
 	}
 	doMount(addr, dir, debug, int(mode), time.Duration(latency)*time.Millisecond)
 	os.Exit(0)
 }
 
 func init() {
-	if os.Getenv("MTFS_TEST_MOUNT") != "" {
+	if os.Getenv("CLFS_TEST_MOUNT") != "" {
 		mountMain()
 	}
 }
@@ -192,13 +192,13 @@ func MountOne(t *testing.T, server *TestServer, mode int, latency time.Duration)
 	}
 	// Use a subprocess to avoid dead-locks on errors.
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), "MTFS_TEST_MOUNT=1")
-	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_ADDR="+server.Addr)
-	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DIR="+mntDir)
-	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
-	cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
+	cmd.Env = append(os.Environ(), "CLFS_TEST_MOUNT=1")
+	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_ADDR="+server.Addr)
+	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DIR="+mntDir)
+	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
+	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
 	if testing.Verbose() {
-		cmd.Env = append(cmd.Env, "MTFS_TEST_MOUNT_DEBUG=1")
+		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DEBUG=1")
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

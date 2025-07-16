@@ -3,12 +3,12 @@ package server
 import (
 	"testing"
 
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
-// mockStream is a mock implementation of proto.MtfsService_ServeServer
+// mockStream is a mock implementation of proto.ClfsService_ServeServer
 type mockStream struct {
-	proto.MtfsService_ServeServer
+	proto.ClfsService_ServeServer
 }
 
 func (m *mockStream) Send(*proto.OperationResponse) error {

@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package mtfs;
+package clfs;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "velda.io/mtfs/pkg/proto";
+option go_package = "velda.io/clfs/pkg/proto";
 
 message Key {
   string key = 1; // Key for the file

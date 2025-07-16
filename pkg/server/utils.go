@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 func StatProtoFromSysStat(stat *unix.Stat_t) *proto.FileStat {

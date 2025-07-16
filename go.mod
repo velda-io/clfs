@@ -1,4 +1,4 @@
-module velda.io/mtfs
+module velda.io/clfs
 
 go 1.23.0
 

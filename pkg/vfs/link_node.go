@@ -5,7 +5,7 @@ import (
 	"syscall"
 
 	"github.com/hanwen/go-fuse/v2/fs"
-	"velda.io/mtfs/pkg/proto"
+	"velda.io/clfs/pkg/proto"
 )
 
 type LinkNode struct {

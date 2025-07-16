@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"velda.io/mtfs/pkg/vfs"
+	"velda.io/clfs/pkg/vfs"
 )
 
 var debug = flag.Bool("debug", false, "Enable debug logging")
@@ -61,7 +61,7 @@ func Mount(volume, workspaceDir string, options ...MountOptions) (*fuse.Server, 
 			AllowOther:         true,
 			DisableReadDirPlus: true,
 			DirectMountStrict:  true,
-			Name:               "mtfs",
+			Name:               "clfs",
 			MaxWrite:           1024 * 1024,
 			EnableLocks:        true,
 			DirectMountFlags:   syscall.MS_MGC_VAL,
