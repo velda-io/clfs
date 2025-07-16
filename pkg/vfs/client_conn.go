@@ -134,3 +134,7 @@ func (c *Client) UnregisterServerCallback(cookie []byte) {
 	defer c.mu.Unlock()
 	delete(c.notifies, string(cookie))
 }
+
+func (c *Client) ReportAsyncError(fmt string, args ...interface{}) {
+	log.Printf("Async error: "+fmt, args...)
+}

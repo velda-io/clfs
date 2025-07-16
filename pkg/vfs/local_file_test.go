@@ -11,7 +11,7 @@ import (
 func TestWriteRead(t *testing.T) {
 	t.Skip("Flush will stuck due to missing cookie for inode")
 	// Setup
-	mockServer := &DummyServer{}
+	mockServer := &DummyServer{t: t}
 	cookie := []byte("parent-dir-cookie")
 
 	// Create parent inode with SYNC_EXCLUSIVE_WRITE flag (async mode)

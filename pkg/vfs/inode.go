@@ -17,6 +17,7 @@ type ServerProtocol interface {
 	EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64
 	RegisterServerCallback(cookie []byte, callback ServerCallback)
 	UnregisterServerCallback(cookie []byte)
+	ReportAsyncError(fmt string, args ...interface{})
 }
 
 type pendingRequest struct {
@@ -112,6 +113,7 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 			n.cachedStat.Ctime = timestamppb.New(ctime)
 		}
 		out.Attr = *AttrFromStatProto(n.cachedStat)
+		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_SetAttr{SetAttr: &proto.SetAttrRequest{
 				Stat: n.cachedStat,
@@ -119,6 +121,7 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
+				n.serverProtocol.ReportAsyncError("Async SetAttr failed: %v", err)
 				return
 			}
 			switch s := response.Response.(type) {

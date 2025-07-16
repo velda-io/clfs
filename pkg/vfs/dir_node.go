@@ -98,16 +98,10 @@ func (n *DirInode) Mkdir(ctx context.Context, name string, mode uint32, out *fus
 			func(response *proto.OperationResponse, err error) {
 				defer n.syncer.CompleteAsync(op)
 				if err != nil {
+					n.serverProtocol.ReportAsyncError("Async Mkdir failed: %v", err)
 					return
 				}
-				switch s := response.Response.(type) {
-				case *proto.OperationResponse_Mkdir:
-					cookie := s.Mkdir.Cookie
-					node.ResolveCookie(cookie)
-				default:
-					// Handle unexpected response type
-					return
-				}
+				node.ResolveCookie(response.GetMkdir().Cookie)
 			},
 		)
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: mode | syscall.S_IFDIR}), 0
@@ -156,16 +150,11 @@ func (n *DirInode) Mknod(ctx context.Context, name string, mode uint32, dev uint
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
+				n.serverProtocol.ReportAsyncError("Async Mknod failed: %v", err)
 				return
 			}
-			switch s := response.Response.(type) {
-			case *proto.OperationResponse_Mknod:
-				cookie := s.Mknod.Cookie
-				node.(InodeInterface).ResolveCookie(cookie)
-			default:
-				// Handle unexpected response type
-				return
-			}
+			c := response.GetMknod()
+			node.(InodeInterface).ResolveCookie(c.Cookie)
 		})
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), 0
 	} else {
@@ -235,7 +224,7 @@ func (n *DirInode) Rmdir(ctx context.Context, name string) syscall.Errno {
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				debugf("Async Rmdir failed: %v", err)
+				n.serverProtocol.ReportAsyncError("Async Rmdir failed: %v", err)
 				return
 			}
 		})
@@ -291,7 +280,7 @@ func (n *DirInode) Unlink(ctx context.Context, name string) syscall.Errno {
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				debugf("Async Unlink failed: %v", err)
+				n.serverProtocol.ReportAsyncError("Async Unlink failed: %v", err)
 				return
 			}
 		})
@@ -336,17 +325,10 @@ func (n *DirInode) Symlink(ctx context.Context, pointedTo string, linkName strin
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				debugf("Async Symlink failed: %v", err)
+				n.serverProtocol.ReportAsyncError("Async Symlink failed: %v", err)
 				return
 			}
-			switch s := response.Response.(type) {
-			case *proto.OperationResponse_Symlink:
-				cookie := s.Symlink.Cookie
-				node.ResolveCookie(cookie)
-			default:
-				debugf("Received unexpected response type: %T", s)
-				return
-			}
+			node.ResolveCookie(response.GetSymlink().Cookie)
 		})
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFLNK | 0777}), 0
 	}
@@ -404,18 +386,13 @@ func (n *DirInode) Create(ctx context.Context, name string, flags uint32, mode u
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
 			if err != nil {
-				debugf("Async Create failed: %v", err)
+				n.serverProtocol.ReportAsyncError("Async Create failed: %v", err)
 				return
 			}
-			switch s := response.Response.(type) {
-			case *proto.OperationResponse_Create:
-				cookie := s.Create.Cookie
-				node.ResolveCookie(cookie)
-				fh.SetHandle(s.Create.FileHandle)
-			default:
-				debugf("Received unexpected response type: %T", s)
-				return
-			}
+			c := response.GetCreate()
+			cookie := c.Cookie
+			node.ResolveCookie(cookie)
+			fh.SetHandle(c.FileHandle)
 		})
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: mode}), fh, 0, fs.OK
 	} else {

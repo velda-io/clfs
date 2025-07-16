@@ -130,6 +130,9 @@ func (n *FileInode) Write(ctx context.Context, fh fs.FileHandle, data []byte, of
 			func(response *proto.OperationResponse, err error) {
 				if op.Async() {
 					n.syncer.CompleteAsync(op)
+					if err != nil {
+						n.serverProtocol.ReportAsyncError("Async Write failed: %v", err)
+					}
 				}
 				defer lfh.Wait.Done()
 				if err != nil {

@@ -15,7 +15,7 @@ import (
 // TestMkdirAsyncRequest verifies that in async mode the Mkdir method sends the correct request
 func TestMkdirAsyncRequest(t *testing.T) {
 	// Setup
-	mockServer := NewMockServerProtocol()
+	mockServer := NewMockServerProtocol(t)
 	cookie := []byte("parent-dir-cookie")
 
 	// Mock will track but not enforce the RegisterServerCallback call
@@ -75,7 +75,7 @@ func TestMkdirAsyncRequest(t *testing.T) {
 // TestMkdirSyncRequest verifies that in sync mode the Mkdir method sends the correct request
 func TestMkdirSyncRequest(t *testing.T) {
 	// Setup
-	mockServer := NewMockServerProtocol()
+	mockServer := NewMockServerProtocol(t)
 	cookie := []byte("parent-dir-cookie")
 
 	// Mock will track but not enforce the RegisterServerCallback call
@@ -159,7 +159,7 @@ func TestMkdirSyncRequest(t *testing.T) {
 // TestMkdirWithPendingCookie tests the case where the parent node doesn't have a cookie yet
 func TestMkdirWithPendingCookie(t *testing.T) {
 	// Setup
-	mockServer := NewMockServerProtocol()
+	mockServer := NewMockServerProtocol(t)
 
 	// Define cookies
 	parentCookie := []byte("parent-dir-cookie")
@@ -229,7 +229,7 @@ func TestMkdirWithPendingCookie(t *testing.T) {
 // TestMkdirOperationError tests error handling in async/sync operations
 func TestMkdirOperationError(t *testing.T) {
 	// Setup
-	mockServer := NewMockServerProtocol()
+	mockServer := NewMockServerProtocol(t)
 	cookie := []byte("parent-dir-cookie")
 
 	// Mock will track but not enforce the RegisterServerCallback call

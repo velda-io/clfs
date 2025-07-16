@@ -16,11 +16,13 @@ type MockServerProtocol struct {
 	mock.Mock
 	callbacks map[string]ServerCallback
 	mu        sync.Mutex
+	t         *testing.T
 }
 
-func NewMockServerProtocol() *MockServerProtocol {
+func NewMockServerProtocol(t *testing.T) *MockServerProtocol {
 	return &MockServerProtocol{
 		callbacks: make(map[string]ServerCallback),
+		t:         t,
 	}
 }
 
@@ -47,6 +49,10 @@ func (m *MockServerProtocol) UnregisterServerCallback(cookie []byte) {
 	delete(m.callbacks, string(cookie))
 }
 
+func (m *MockServerProtocol) ReportAsyncError(fmt string, args ...interface{}) {
+	m.t.Errorf(fmt, args...)
+}
+
 // Helper to trigger a response callback
 func (m *MockServerProtocol) TriggerCallback(cookie []byte, response *proto.OperationResponse) {
 	m.mu.Lock()
@@ -56,7 +62,9 @@ func (m *MockServerProtocol) TriggerCallback(cookie []byte, response *proto.Oper
 	}
 }
 
-type DummyServer struct{}
+type DummyServer struct {
+	t *testing.T
+}
 
 func (d *DummyServer) EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64 {
 	go callback(nil, syscall.EIO)
@@ -67,6 +75,10 @@ func (d *DummyServer) RegisterServerCallback(cookie []byte, callback ServerCallb
 }
 
 func (d *DummyServer) UnregisterServerCallback(cookie []byte) {
+}
+
+func (d *DummyServer) ReportAsyncError(fmt string, args ...interface{}) {
+	d.t.Errorf(fmt, args...)
 }
 
 func testMount(t *testing.T, root fs.InodeEmbedder, opts *fs.Options) (string, *fuse.Server) {
