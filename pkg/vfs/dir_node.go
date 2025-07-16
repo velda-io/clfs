@@ -472,7 +472,7 @@ func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileH
 			inode:   n,
 		}, 0, 0
 	}
-	return &DirStream{inode: n}, 0, 0
+	return &DirStream{inode: n, op: op}, 0, 0
 }
 
 type DirStreamCloser struct {
@@ -506,7 +506,6 @@ func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Err
 			s.offsetToken = resp.ScanDir.OffsetToken
 			// TODO: Set the node to have full data.
 			if s.offsetToken == nil {
-				s.inode.syncer.Complete(s.op)
 				s.op = nil
 			}
 		default:

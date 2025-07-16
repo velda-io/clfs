@@ -32,6 +32,12 @@ func NewVolume(path string) (*Volume, error) {
 	v.nodesByCookie, err = lru.NewWithEvict(1000, func(key string, value *ServerNode) {
 		v.mu.Lock()
 		defer v.mu.Unlock()
+		if value == v.root {
+			go func() {
+				v.nodesByCookie.Add(key, v.root) // Re-add root node to cache
+			}()
+			return
+		}
 		delete(v.nodes, value.nodeId)
 		value.Close()
 	})

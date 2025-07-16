@@ -103,6 +103,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to mount: %v", err)
 	}
+	vfs.SetDebug(*debug)
 
 	log.Printf("Mounted at %s", workspaceDir)
 	sig := make(chan os.Signal, 1)

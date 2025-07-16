@@ -90,6 +90,28 @@ var _ = (fs.NodeSetattrer)((*Inode)(nil))
 func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
 	op := n.syncer.StartWrite()
 	defer n.syncer.Complete(op)
+	stat := &proto.FileStat{
+		Valid: attr.Valid,
+		Mode:  attr.Mode,
+		Uid:   attr.Uid,
+		Gid:   attr.Gid,
+		Size:  attr.Size,
+	}
+	if attr.Valid&fuse.FATTR_ATIME != 0 {
+		if atime, ok := attr.GetATime(); ok {
+			stat.Atime = timestamppb.New(atime)
+		}
+	}
+	if attr.Valid&fuse.FATTR_MTIME != 0 {
+		if mtime, ok := attr.GetMTime(); ok {
+			stat.Mtime = timestamppb.New(mtime)
+		}
+	}
+	if attr.Valid&fuse.FATTR_CTIME != 0 {
+		if ctime, ok := attr.GetCTime(); ok {
+			stat.Ctime = timestamppb.New(ctime)
+		}
+	}
 	if op.Async() {
 		if attr.Valid&fuse.FATTR_MODE != 0 {
 			n.cachedStat.Mode = attr.Mode
@@ -103,20 +125,20 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 		if attr.Valid&fuse.FATTR_SIZE != 0 {
 			n.cachedStat.Size = attr.Size
 		}
-		if atime, ok := attr.GetATime(); ok {
-			n.cachedStat.Atime = timestamppb.New(atime)
+		if attr.Valid&fuse.FATTR_ATIME != 0 {
+			n.cachedStat.Atime = stat.Atime
 		}
-		if mtime, ok := attr.GetMTime(); ok {
-			n.cachedStat.Mtime = timestamppb.New(mtime)
+		if attr.Valid&fuse.FATTR_MTIME != 0 {
+			n.cachedStat.Mtime = stat.Mtime
 		}
-		if ctime, ok := attr.GetCTime(); ok {
-			n.cachedStat.Ctime = timestamppb.New(ctime)
+		if attr.Valid&fuse.FATTR_CTIME != 0 {
+			n.cachedStat.Ctime = stat.Ctime
 		}
 		out.Attr = *AttrFromStatProto(n.cachedStat)
 		n.syncer.StartAsync(op)
 		n.asyncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_SetAttr{SetAttr: &proto.SetAttrRequest{
-				Stat: n.cachedStat,
+				Stat: stat,
 			}},
 		}, func(response *proto.OperationResponse, err error) {
 			defer n.syncer.CompleteAsync(op)
@@ -132,10 +154,9 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 		})
 		return fs.OK
 	} else {
-		// TODO: Generate proto
 		response, err := n.syncOperation(ctx, &proto.OperationRequest{
 			Operation: &proto.OperationRequest_SetAttr{SetAttr: &proto.SetAttrRequest{
-				Stat: emptyFileStatProto(ctx, n.cachedStat.Mode),
+				Stat: stat,
 			}},
 		})
 		if err != nil {

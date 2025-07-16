@@ -14,7 +14,6 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"velda.io/mtfs/pkg/proto"
@@ -199,7 +198,7 @@ func MountOne(t *testing.T, server *TestServer, mode int) (string, func()) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	stop := func() {
-		unix.Unmount(mntDir, 0)
+		cmd.Process.Signal(syscall.SIGTERM)
 		cmd.Process.Wait()
 	}
 	if err := cmd.Start(); err != nil {

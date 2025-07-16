@@ -21,12 +21,14 @@ func main() {
 	endpoint := flag.String("endpoint", "localhost:50055", "The endpoint to listen on")
 	rootDir := flag.String("root", "./", "The root directory for the service")
 	volumeName := flag.String("vname", "volume", "Name of the volume")
+	debug := flag.Bool("debug", false, "Enable debug logging")
 	flag.Parse()
 
 	go func() {
 		lis, _ := net.Listen("tcp", ":6071")
 		http.Serve(lis, nil)
 	}()
+	server.SetDebug(*debug)
 	// Start the gRPC server
 	listener, err := net.Listen("tcp", *endpoint)
 	if err != nil {

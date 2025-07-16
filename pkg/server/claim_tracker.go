@@ -5,12 +5,11 @@ import "sync"
 // L: Node
 // R: Session
 type claimTracker struct {
-	mu         sync.Mutex
-	writer     *session
-	readers    map[*session]bool
-	writeQueue []func()
-	readQueue  []func()
-	updater    claimUpdater
+	mu      sync.Mutex
+	writer  *session
+	readers map[*session]bool
+	queue   []func()
+	updater claimUpdater
 }
 
 type claimUpdater interface {
@@ -30,7 +29,7 @@ func NewClaimTracker(updater claimUpdater) *claimTracker {
 func (t *claimTracker) Write(s *session, callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	noQueue := len(t.writeQueue) == 0 && len(t.readQueue) == 0
+	noQueue := len(t.queue) == 0
 	// Currently holds the writer claim and not revoking
 	if t.writer == s {
 		callback()
@@ -52,14 +51,14 @@ func (t *claimTracker) Write(s *session, callback func()) {
 		callback()
 		return
 	}
-	t.writeQueue = append(t.writeQueue, callback)
+	t.queue = append(t.queue, callback)
 }
 
 func (t *claimTracker) Read(s *session, callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	noQueue := len(t.writeQueue) == 0 && len(t.readQueue) == 0
+	noQueue := len(t.queue) == 0
 	// Writer is claimed.
 	if t.writer != nil {
 		if noQueue {
@@ -69,14 +68,14 @@ func (t *claimTracker) Read(s *session, callback func()) {
 			}
 			t.updater.NotifyRevokeWriter(t.writer)
 		}
-		t.readQueue = append(t.readQueue, callback)
+		t.queue = append(t.queue, callback)
 		return
 	}
 
-	if len(t.writeQueue) != 0 {
+	if len(t.queue) != 0 {
 		// Avoid starvation by allow write to proceed
 		// E.g. readers are being revoked.
-		t.readQueue = append(t.readQueue, callback)
+		t.queue = append(t.queue, callback)
 		return
 	}
 
@@ -112,13 +111,9 @@ func (t *claimTracker) RevokedReader(s *session) {
 
 func (t *claimTracker) checkQueues() {
 	if t.writer == nil && len(t.readers) == 0 {
-		for _, callback := range t.writeQueue {
+		for _, callback := range t.queue {
 			callback()
 		}
-		t.writeQueue = nil
-		for _, callback := range t.readQueue {
-			callback()
-		}
-		t.readQueue = nil
+		t.queue = nil
 	}
 }
