@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -20,11 +21,13 @@ const (
 
 // ServerNode represents a file or directory on the server.
 type ServerNode struct {
-	volume *Volume
-	fh     unix.FileHandle
-	fd     int // File descriptor for the node
-	nodeId uint64
-	mode   uint32
+	volume          *Volume
+	fh              unix.FileHandle
+	fd              int // File descriptor for the node
+	nodeId          uint64
+	mu              sync.Mutex // Protects the node's state
+	writingSession  *session
+	readingSessions []*session
 }
 
 func (n *ServerNode) Close() {

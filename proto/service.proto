@@ -5,7 +5,7 @@ package mtfs;
 import "dirnode.proto";
 
 option go_package = "velda.io/mtfs/pkg/proto";
-
+// protolint:disable ENUM_FIELD_NAMES_PREFIX
 enum ClaimStatus {
   CLAIM_STATUS_UNSPECIFIED = 0;             // Unspecified claim status
   CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED = 1; // Exclusive write access granted
@@ -42,6 +42,10 @@ message OperationRequest {
     MountRequest mount = 18; // Request to mount a filesystem
     UmountRequest umount = 19; // Request to unmount a filesystem
   }
+
+  oneof server_response {
+    ClaimUpdateResponse claim_update = 21; // Claim update request
+  }
 }
 
 message ErrorResponse {
@@ -56,9 +60,6 @@ message OperationResponse {
   bytes cookie = 2; // Cookie for the identity of the inode.
   ErrorResponse error = 3; // Error response if the operation failed
   oneof response {
-    // Notifications from the server.
-    ClaimUpdateServerRequest claim_update = 4; // Claim update request
-
     MkdirResponse mkdir = 5;
     LookupResponse lookup = 6;
     GetAttrResponse get_attr = 7;
@@ -79,6 +80,11 @@ message OperationResponse {
 
     MountResponse mount = 20; // Response to mount a filesystem
     UmountResponse umount = 21; // Response to unmount a filesystem
+  }
+
+  // Notifications from the server.
+  oneof server_request {
+    ClaimUpdateServerRequest claim_update = 4; // Claim update request
   }
 }
 
@@ -218,6 +224,11 @@ message CloseResponse {
 message ClaimUpdateServerRequest {
   ClaimStatus status = 1; // Status of the claim update
 }
+
+message ClaimUpdateResponse {
+  ClaimStatus status = 1; // Status of the claim update
+}
+
 message UmountRequest {
 }
 message UmountResponse {

@@ -55,11 +55,12 @@ func (s *MtfsServiceServer) Serve(stream proto.MtfsService_ServeServer) (e error
 	if volume == nil {
 		return status.Errorf(codes.NotFound, "Volume %s not found", mnt.Volume)
 	}
-	sess := &session{stream: stream, volume: volume}
+	sess := NewSession(stream, volume)
 	sess.handleOp(volume.root, req)
 	for {
 		req, err := stream.Recv()
 		if err != nil {
+			sess.Close()
 			return err
 		}
 		s.ops <- func() {

@@ -49,8 +49,8 @@ func (c *Client) Run(ctx context.Context) error {
 			}
 			return err
 		}
-		if response.SeqId == 0 {
-			// This is a server callback
+		if response.ServerRequest != nil {
+			// This is a server notification
 			c.mu.Lock()
 			callback, ok := c.notifies[string(response.Cookie)]
 			c.mu.Unlock()

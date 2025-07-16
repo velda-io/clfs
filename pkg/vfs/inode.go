@@ -44,7 +44,7 @@ func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGr
 	n.cachedStat = initialStat
 	n.syncer.flags = initialSyncGrants
 	if cookie != nil {
-		serverProtocol.RegisterServerCallback(cookie, n.ReceiveResponse)
+		serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
 	}
 }
 
@@ -223,7 +223,7 @@ func (n *Inode) ResolveCookie(cookie []byte) {
 		}
 	}
 	n.pendingOps = nil
-	n.serverProtocol.RegisterServerCallback(cookie, n.ReceiveResponse)
+	n.serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
 }
 
 func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {
@@ -239,10 +239,10 @@ func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {
 	}
 }
 
-func (n *Inode) ReceiveResponse(response *proto.OperationResponse) {
+func (n *Inode) ReceiveServerRequest(response *proto.OperationResponse) {
 	n.opMu.Lock()
 	defer n.opMu.Unlock()
-	switch t := response.Response.(type) {
+	switch t := response.ServerRequest.(type) {
 	case *proto.OperationResponse_ClaimUpdate:
 		n.handleClaimUpdate(t.ClaimUpdate.Status)
 		return

@@ -83,7 +83,6 @@ func (v *Volume) GetNodeByHandle(fileHandle unix.FileHandle) (*ServerNode, error
 		fh:     fileHandle,
 		fd:     fd,
 		nodeId: key,
-		mode:   stat.Mode,
 	}
 	// Do not allow cross mountpoint
 	if stat.Dev != v.dev {
