@@ -78,7 +78,7 @@ type TestClient struct {
 	svc *fuse.Server
 }
 
-func runClient(endpoint string) vfs.ServerProtocol {
+func runClient(endpoint string) *vfs.Client {
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Failed to connect to endpoint %s: %v", endpoint, err)
@@ -145,6 +145,7 @@ func doMount(addr, dir string, debug bool, mode int) {
 			log.Fatalf("testMount: Unmount failed: %v", err)
 		}
 	}
+	client.Shutdown()
 }
 
 func mountMain() {
