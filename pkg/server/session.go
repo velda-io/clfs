@@ -8,6 +8,7 @@ import (
 	"velda.io/mtfs/pkg/proto"
 )
 
+type NotifyCallback func(*proto.OperationRequest, error)
 type session struct {
 	volume      *Volume // The volume this session is associated with
 	streamMu    sync.RWMutex
@@ -18,6 +19,10 @@ type session struct {
 	claimMu      sync.Mutex // Protects the claim tracker
 	writerClaims map[*claimTracker]bool
 	readerClaims map[*claimTracker]bool
+
+	notifyMu       sync.Mutex
+	notifyId       int64
+	notifyCallback map[int64]NotifyCallback // Map of notify ID to callback
 }
 
 func NewSession(stream proto.MtfsService_ServeServer, volume *Volume) *session {
@@ -67,6 +72,16 @@ func (s *session) closeFileHandle(handle []byte) {
 }
 
 func (sess *session) HandleOp(req *proto.OperationRequest) {
+	if req.ServerResponse != nil {
+		sess.notifyMu.Lock()
+		defer sess.notifyMu.Unlock()
+		callback, ok := sess.notifyCallback[req.SeqId]
+		if ok {
+			delete(sess.notifyCallback, req.SeqId)
+			callback(req, nil)
+		}
+		return
+	}
 	node, err := sess.DecodeCookie(req.Cookie)
 	if err != nil {
 		sess.streamMu.RLock()
@@ -101,6 +116,28 @@ func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	resp.SeqId = req.SeqId
 	if err := sess.stream.Send(resp); err != nil {
 		debugf("Stream failure: %v", err)
+	}
+}
+
+func (sess *session) SendNotify(node *ServerNode, op *proto.OperationResponse, callback NotifyCallback) {
+	func() {
+		sess.notifyMu.Lock()
+		defer sess.notifyMu.Unlock()
+		sess.notifyId++
+		sess.notifyCallback[sess.notifyId] = callback
+		op.SeqId = sess.notifyId
+	}()
+	sess.streamMu.RLock()
+	defer sess.streamMu.RUnlock()
+	if sess.stream == nil {
+		debugf("Session stream is closed, cannot send notification")
+		return
+	}
+	if err := sess.stream.Send(&proto.OperationResponse{
+		ServerRequest: op.ServerRequest,
+		Cookie:        sess.GetCookie(node),
+	}); err != nil {
+		debugf("Failed to send notification: %v", err)
 	}
 }
 

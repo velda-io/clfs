@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/hanwen/go-fuse/v2/fs"
@@ -58,6 +59,7 @@ func (m *MockServerProtocol) TriggerCallback(cookie []byte, response *proto.Oper
 type DummyServer struct{}
 
 func (d *DummyServer) EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64 {
+	go callback(nil, syscall.EIO)
 	return 1
 }
 

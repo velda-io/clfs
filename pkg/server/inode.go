@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -21,13 +20,11 @@ const (
 
 // ServerNode represents a file or directory on the server.
 type ServerNode struct {
-	volume          *Volume
-	fh              unix.FileHandle
-	fd              int // File descriptor for the node
-	nodeId          uint64
-	mu              sync.Mutex // Protects the node's state
-	writingSession  *session
-	readingSessions []*session
+	volume  *Volume
+	fh      unix.FileHandle
+	fd      int // File descriptor for the node
+	nodeId  uint64
+	tracker *claimTracker // Claim tracker for this node
 }
 
 func (n *ServerNode) Close() {
@@ -472,4 +469,44 @@ func (n *ServerNode) CloseOp(s *session, req *proto.CloseRequest) (*proto.Operat
 func (n *ServerNode) fdPath() string {
 	// This is inherently racy, but we need to construct the path for operations like Readlink.
 	return fmt.Sprintf("/proc/self/fd/%d", n.fd)
+}
+
+func (n *ServerNode) NotifyRevokeWriter(s *session) {
+	s.SendNotify(n, &proto.OperationResponse{
+		ServerRequest: &proto.OperationResponse_ClaimUpdate{
+			ClaimUpdate: &proto.ClaimUpdateServerRequest{
+				Status: proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED,
+			},
+		},
+	}, func(req *proto.OperationRequest, err error) {
+		if err != nil {
+			debugf("Failed to notify revoke writer: %v", err)
+			return
+		}
+		n.tracker.RevokedWriter(s)
+	})
+}
+
+func (n *ServerNode) NotifyRevokeReader(s *session) {
+	s.SendNotify(n, &proto.OperationResponse{
+		ServerRequest: &proto.OperationResponse_ClaimUpdate{
+			ClaimUpdate: &proto.ClaimUpdateServerRequest{
+				Status: proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED,
+			},
+		},
+	}, func(req *proto.OperationRequest, err error) {
+		if err != nil {
+			debugf("Failed to notify revoke reader: %v", err)
+			return
+		}
+		n.tracker.RevokedReader(s)
+	})
+}
+
+func (n *ServerNode) ClaimWriter(s *session) bool {
+	return false
+}
+
+func (n *ServerNode) ClaimReader(s *session) bool {
+	return false
 }

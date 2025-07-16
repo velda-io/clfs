@@ -78,17 +78,18 @@ func (v *Volume) GetNodeByHandle(fileHandle unix.FileHandle) (*ServerNode, error
 		return nil, err
 	}
 	key := stat.Ino
+	// Do not allow cross mountpoint
+	if stat.Dev != v.dev {
+		unix.Close(fd)
+		return nil, syscall.EACCES
+	}
 	newNode := &ServerNode{
 		volume: v,
 		fh:     fileHandle,
 		fd:     fd,
 		nodeId: key,
 	}
-	// Do not allow cross mountpoint
-	if stat.Dev != v.dev {
-		unix.Close(fd)
-		return nil, syscall.EACCES
-	}
+	newNode.tracker = NewClaimTracker(newNode)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if existingNode, ok := v.nodes[key]; ok {

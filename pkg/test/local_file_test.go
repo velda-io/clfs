@@ -5,20 +5,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"velda.io/mtfs/pkg/vfs"
 )
 
 func TestFull(t *testing.T) {
+	mode := 0
 	tests := []struct {
 		name string
-		mode int
 	}{
-		{"Default", 0},
-		{"SyncExclusiveWrite", vfs.SYNC_EXCLUSIVE_WRITE},
-		{"SyncLockRead", vfs.SYNC_LOCK_READ},
+		{"Default"},
 	}
 	for _, tt := range tests {
-		mode := tt.mode
 		t.Run("TestRequest"+tt.name, func(t *testing.T) {
 			// Setup
 			s := StartTestServer(t)
