@@ -43,6 +43,7 @@ func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGr
 	n.syncer = NewSyncer()
 	n.cachedStat = initialStat
 	n.syncer.flags = initialSyncGrants
+	n.syncer.desiredFlags = initialSyncGrants
 	if cookie != nil {
 		serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
 	}
@@ -143,20 +144,6 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 	}
 }
 
-var _ = (fs.NodeOnForgetter)((*Inode)(nil))
-
-func (n *Inode) OnForget() {
-	if n.cookie == nil {
-		debugf("Forget called on Inode without cookie, ignoring")
-		return
-	}
-	debugf("Forget called on Inode with cookie %x", n.cookie)
-	// After all operations are completed, we will send a forget request to the server.
-	n.syncer.SetCleanup(func() {
-		n.serverProtocol.UnregisterServerCallback(n.cookie)
-	})
-}
-
 // TODO: xattr
 
 func (n *Inode) doOperation(ctx context.Context, async bool, request *proto.OperationRequest, callback OpCallback) {
@@ -229,13 +216,15 @@ func (n *Inode) ResolveCookie(cookie []byte) {
 func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {
 	switch update {
 	case proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED:
-		n.syncer.UpgradeClaim(SYNC_EXCLUSIVE_WRITE_GRANTED)
+		n.syncer.UpgradeClaim(SYNC_EXCLUSIVE_WRITE, SYNC_EXCLUSIVE_WRITE)
 	case proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_GRANTED:
-		n.syncer.UpgradeClaim(SYNC_LOCK_READ_GRANTED)
+		n.syncer.UpgradeClaim(SYNC_LOCK_READ, SYNC_LOCK_READ)
 	case proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED:
-	// TODO
+		n.syncer.UpgradeClaim(SYNC_EXCLUSIVE_WRITE, 0)
 	case proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED:
-		// TODO
+		n.syncer.UpgradeClaim(SYNC_LOCK_READ, 0)
+	default:
+		debugf("Received unknown claim update: %v", update)
 	}
 }
 

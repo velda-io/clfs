@@ -5,19 +5,13 @@ import (
 )
 
 const (
-	SYNC_EXCLUSIVE_WRITE = 1 << iota
-	SYNC_LOCK_READ
-	SYNC_EXCLUSIVE_WRITE_GRANTED
-	SYNC_LOCK_READ_GRANTED
+	SYNC_LOCK_READ = 1 << iota
+	SYNC_EXCLUSIVE_WRITE
 )
 
-type operationStatus int
-
-const (
-	STATUS_PENDING operationStatus = iota
-	STATUS_SENT
-	STATUS_COMPLETED
-)
+type hasOnRevoked interface {
+	OnRevoked(lastFlag int)
+}
 
 type operation struct {
 	readonly bool // Indicates if the operation is read-only
@@ -30,6 +24,7 @@ func (o *operation) Async() bool {
 
 type syncer struct {
 	flags        int
+	desiredFlags int
 	mu           sync.Mutex
 	cond         *sync.Cond // Used to signal when claim status changes
 	operations   operation  // List of operations that are pending or in progress.
@@ -37,7 +32,11 @@ type syncer struct {
 	writerActive bool
 	readers      int
 	asyncOps     int
-	cleanup      func()
+
+	// Notify the Inode to
+	// 1. Clear current cached data
+	// 2. Remove from future server updates.
+	notif hasOnRevoked
 }
 
 func NewSyncer() *syncer {
@@ -50,16 +49,23 @@ func (s *syncer) StartWrite() *operation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.writerWait++
-	for s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 ||
-		((s.writerActive || s.readers > 0) && s.flags&SYNC_EXCLUSIVE_WRITE != 0) ||
-		(s.readers > 0 && s.flags&SYNC_LOCK_READ != 0) {
-		s.cond.Wait()
+	for {
+		pendingClaimUpgrade := (s.desiredFlags & (s.flags ^ s.desiredFlags) & SYNC_EXCLUSIVE_WRITE) != 0
+		pendingRevoke := s.flags&(s.flags^s.desiredFlags) != 0
+		hasSyncAccess := ((s.writerActive || s.readers > 0) && s.flags&SYNC_EXCLUSIVE_WRITE != 0)
+		hasReader := (s.readers > 0 && s.flags&SYNC_LOCK_READ != 0)
+		if pendingClaimUpgrade || pendingRevoke || hasSyncAccess || hasReader {
+			s.cond.Wait()
+		} else {
+			break
+		}
 	}
 	s.writerActive = true
 	s.writerWait--
-	// Self revoke the read grant as modification happens.
-	if s.flags&(SYNC_LOCK_READ|SYNC_LOCK_READ_GRANTED) != 0 {
-		s.flags &^= (SYNC_LOCK_READ_GRANTED | SYNC_LOCK_READ)
+	// Self revoke the read claim as modification happens.
+	if s.flags&SYNC_LOCK_READ != 0 || s.desiredFlags&SYNC_LOCK_READ != 0 {
+		s.flags &^= SYNC_LOCK_READ
+		s.desiredFlags &^= SYNC_LOCK_READ
 		s.cond.Broadcast()
 	}
 	op := &operation{
@@ -75,10 +81,15 @@ func (s *syncer) StartWrite() *operation {
 func (s *syncer) StartRead() *operation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Wait until no pending grant, and if cache is valid, wait for the writer to finish
-	for s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 ||
-		((s.writerActive || s.writerWait > 0) && s.flags&(SYNC_EXCLUSIVE_WRITE|SYNC_LOCK_READ) != 0) {
-		s.cond.Wait()
+	for {
+		pendingClaimUpdate := s.flags != s.desiredFlags
+		hasSyncWriter := (s.writerActive || s.writerWait > 0) && s.flags&SYNC_EXCLUSIVE_WRITE != 0
+		// Wait until no pending grant, and if cache is valid, wait for the writer to finish
+		if pendingClaimUpdate || hasSyncWriter {
+			s.cond.Wait()
+		} else {
+			break
+		}
 	}
 	op := &operation{
 		readonly: true,
@@ -102,13 +113,9 @@ func (s *syncer) Complete(op *operation) {
 	}
 	s.checkClaimUpdates()
 	s.cond.Broadcast()
-	if s.cleanup != nil && s.emptyLocked() && s.writerWait == 0 {
-		s.cleanup()
-		s.cleanup = nil // Clear cleanup to avoid multiple calls
-	}
 }
 
-// Called when async operations are completed.
+// Called when async write operations are completed.
 func (s *syncer) CompleteAsync(op *operation) {
 	if op == nil {
 		return
@@ -119,45 +126,38 @@ func (s *syncer) CompleteAsync(op *operation) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.asyncOps--
-	s.checkClaimUpdates()
-	if s.cleanup != nil && s.emptyLocked() && s.writerWait == 0 {
-		s.cleanup()
-		s.cleanup = nil // Clear cleanup to avoid multiple calls
+	if s.checkClaimUpdates() {
+		s.cond.Broadcast()
 	}
 }
 
-func (s *syncer) UpgradeClaim(newFlag int) {
+func (s *syncer) UpgradeClaim(mask, newFlag int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.flags&SYNC_EXCLUSIVE_WRITE != 0 {
-		return // Cannot upgrade if already holding a write or read claim
-	}
-	if s.flags&SYNC_LOCK_READ != 0 && newFlag&SYNC_EXCLUSIVE_WRITE_GRANTED == 0 {
-		return // Already have a read claim.
-	}
-	s.flags |= newFlag
+	s.desiredFlags = s.flags & ^mask | (newFlag & mask)
 	// Wait for all operations to complete before upgrading the claim
-	s.checkClaimUpdates()
+	if s.checkClaimUpdates() {
+		s.cond.Broadcast()
+	}
 }
 
-func (s *syncer) checkClaimUpdates() {
-	if s.flags&(SYNC_EXCLUSIVE_WRITE_GRANTED|SYNC_LOCK_READ_GRANTED) != 0 && s.emptyLocked() {
-		if s.flags&SYNC_EXCLUSIVE_WRITE_GRANTED != 0 {
-			s.flags &^= (SYNC_EXCLUSIVE_WRITE_GRANTED | SYNC_LOCK_READ_GRANTED)
-			s.flags |= SYNC_EXCLUSIVE_WRITE
-		} else if s.flags&SYNC_LOCK_READ_GRANTED != 0 {
-			s.flags &^= SYNC_LOCK_READ_GRANTED
-			s.flags |= SYNC_LOCK_READ
+func (s *syncer) checkClaimUpdates() bool {
+	if s.flags != s.desiredFlags && s.emptyLocked() {
+		if s.notif != nil && s.desiredFlags == 0 {
+			s.notif.OnRevoked(s.flags)
 		}
+		s.flags = s.desiredFlags
+		return true
 	}
+	return false
 }
 
 func (s *syncer) emptyLocked() bool {
 	return s.readers == 0 && !s.writerActive && s.asyncOps == 0
 }
 
-func (s *syncer) SetCleanup(cleanup func()) {
+func (s *syncer) SetOnRevoked(callback hasOnRevoked) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cleanup = cleanup
+	s.notif = callback
 }
