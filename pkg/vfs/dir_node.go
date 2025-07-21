@@ -20,6 +20,7 @@ func NewDirInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants
 	if initialSyncGrants != 0 {
 		n.hasFullData = true
 	}
+	n.syncer.SetOnRevoked(n)
 	return n
 }
 

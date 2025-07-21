@@ -16,7 +16,7 @@ func remount(dir string, remount bool, t *testing.T, s *TestServer, mode int, la
 	}
 	return dir
 }
-func TestFull(t *testing.T) {
+func TestWriteThenRead(t *testing.T) {
 	mode := 0
 	tests := []struct {
 		name    string

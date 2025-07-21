@@ -29,7 +29,7 @@ type TestServer struct {
 func StartTestServer(t *testing.T) *TestServer {
 	//path, _ := os.MkdirTemp("", "clfs-test-server")
 	path := t.TempDir()
-	t.Log("Test server path:", path)
+	server.SetDebug(testing.Verbose())
 	return StartTestServerWithPath(t, path)
 }
 

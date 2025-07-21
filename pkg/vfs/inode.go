@@ -174,6 +174,28 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 	}
 }
 
+func (n *Inode) OnRevoked(lastFlag int) {
+	n.serverProtocol.UnregisterServerCallback(n.cookie)
+	update := proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED
+	switch lastFlag {
+	case SYNC_EXCLUSIVE_WRITE:
+		update = proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED
+	case SYNC_LOCK_READ:
+		update = proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED
+	default:
+		debugf("OnRevoked called with unknown flag: %d", lastFlag)
+		return
+	}
+
+	n.asyncOperation(context.Background(), &proto.OperationRequest{
+		Operation: &proto.OperationRequest_ClaimUpdate{
+			ClaimUpdate: &proto.ClaimUpdateResponse{
+				Status: update,
+			},
+		},
+	}, nil)
+}
+
 // TODO: xattr
 
 func (n *Inode) doOperation(ctx context.Context, async bool, request *proto.OperationRequest, callback OpCallback) {
@@ -259,8 +281,6 @@ func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {
 }
 
 func (n *Inode) ReceiveServerRequest(response *proto.OperationResponse) {
-	n.opMu.Lock()
-	defer n.opMu.Unlock()
 	switch t := response.ServerRequest.(type) {
 	case *proto.OperationResponse_ClaimUpdate:
 		n.handleClaimUpdate(t.ClaimUpdate.Status)

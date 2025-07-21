@@ -41,9 +41,6 @@ message OperationRequest {
 
     MountRequest mount = 18; // Request to mount a filesystem
     UmountRequest umount = 19; // Request to unmount a filesystem
-  }
-
-  oneof server_response {
     ClaimUpdateResponse claim_update = 21; // Claim update request
   }
 }

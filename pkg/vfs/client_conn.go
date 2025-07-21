@@ -73,6 +73,7 @@ func (c *Client) Run(ctx context.Context) error {
 			if ok {
 				callback(response)
 			}
+			debugf("Received server request: %v, handled: %v", response.ServerRequest, ok)
 		} else {
 			c.mu.Lock()
 			callback, ok := c.callbacks[response.SeqId]

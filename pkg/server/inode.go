@@ -44,6 +44,17 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 	}
 	var readonly bool
 	switch op := req.Operation.(type) {
+	case *proto.OperationRequest_ClaimUpdate:
+		switch op.ClaimUpdate.Status {
+		case proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED:
+			n.tracker.RevokedWriter(s)
+			return
+		case proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED:
+			n.tracker.RevokedReader(s)
+			return
+		}
+		debugf("Unhandled ClaimUpdate: %v", op.ClaimUpdate.Status)
+		return
 	// Readonly
 	case *proto.OperationRequest_Lookup:
 	case *proto.OperationRequest_GetAttr:
@@ -279,6 +290,7 @@ func (n *ServerNode) Mkdir(s *session, req *proto.MkdirRequest) (*proto.Operatio
 	if err != nil {
 		return nil, fmt.Errorf("failed to get new node: %w", err)
 	}
+	newNode.tracker.setWriter(s)
 	var stat unix.Stat_t
 	if err := unix.Fstat(newNode.fd, &stat); err != nil {
 		newNode.Close()
@@ -419,7 +431,7 @@ func (n *ServerNode) ScanDirectory(s *session, req *proto.ScanDirectoryRequest) 
 }
 
 func (n *ServerNode) Create(s *session, req *proto.CreateRequest) (*proto.OperationResponse, error) {
-	fd, err := unix.Openat(n.fd, req.Name, int(req.Flags), req.Stat.Mode)
+	fd, err := unix.Openat(n.fd, req.Name, int(req.Flags|unix.O_EXCL), req.Stat.Mode)
 	if err != nil {
 		return nil, err
 	}
@@ -429,6 +441,7 @@ func (n *ServerNode) Create(s *session, req *proto.CreateRequest) (*proto.Operat
 		unix.Unlinkat(n.fd, req.Name, 0)
 		return nil, err
 	}
+	child.tracker.setWriter(s)
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		unix.Close(fd)
@@ -521,12 +534,6 @@ func (n *ServerNode) NotifyRevokeWriter(s *session) {
 				Status: proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED,
 			},
 		},
-	}, func(req *proto.OperationRequest, err error) {
-		if err != nil {
-			debugf("Failed to notify revoke writer: %v", err)
-			return
-		}
-		n.tracker.RevokedWriter(s)
 	})
 }
 
@@ -537,12 +544,6 @@ func (n *ServerNode) NotifyRevokeReader(s *session) {
 				Status: proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED,
 			},
 		},
-	}, func(req *proto.OperationRequest, err error) {
-		if err != nil {
-			debugf("Failed to notify revoke reader: %v", err)
-			return
-		}
-		n.tracker.RevokedReader(s)
 	})
 }
 

@@ -186,7 +186,7 @@ func (n *FileInode) Release(ctx context.Context, fh fs.FileHandle) syscall.Errno
 
 func (n *FileInode) OnRevoked(lastFlag int) {
 	n.cache.Clear()
-	n.serverProtocol.UnregisterServerCallback(n.cookie)
+	n.Inode.OnRevoked(lastFlag)
 }
 
 type fileCallback func(handle []byte, err error)
