@@ -85,7 +85,7 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 	if readonly {
 		n.tracker.Read(s, do)
 	} else {
-		n.tracker.Write(s, do)
+		n.tracker.Write(s, "", do)
 	}
 }
 
@@ -580,6 +580,9 @@ func (n *ServerNode) NotifyRevokeReader(s *session) {
 			},
 		},
 	})
+}
+
+func (n *ServerNode) NotifyRevokeDentry(s *session, dentry string) {
 }
 
 func (n *ServerNode) ClaimWriter(s *session) bool {

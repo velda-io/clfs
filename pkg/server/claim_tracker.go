@@ -4,19 +4,23 @@ import (
 	"sync"
 )
 
-// L: Node
-// R: Session
+type dentryClaimTracker struct {
+	sessions map[*session]bool
+	queue    []func()
+}
 type claimTracker struct {
-	mu      sync.Mutex
-	writer  *session
-	readers map[*session]bool
-	queue   []func()
-	updater claimUpdater
+	mu       sync.Mutex
+	writer   *session
+	readers  map[*session]bool
+	queue    []func()
+	updater  claimUpdater
+	dentries map[string]*dentryClaimTracker
 }
 
 type claimUpdater interface {
 	NotifyRevokeWriter(s *session)
 	NotifyRevokeReader(s *session)
+	NotifyRevokeDentry(s *session, dentry string)
 	ClaimWriter(s *session) bool
 	ClaimReader(s *session) bool
 }
@@ -41,7 +45,19 @@ func (t *claimTracker) setWriter(s *session) {
 	s.AddWriterClaim(t)
 }
 
-func (t *claimTracker) Write(s *session, callback func()) {
+func (t *claimTracker) AddDentryClaim(s *session, dentry string) {
+	// Must be locked by the caller
+	if d, exists := t.dentries[dentry]; !exists {
+		t.dentries[dentry] = &dentryClaimTracker{
+			sessions: map[*session]bool{s: false},
+			queue:    nil,
+		}
+	} else {
+		d.sessions[s] = false // Not revoked yet
+	}
+}
+
+func (t *claimTracker) Write(s *session, dentry string, callback func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	noQueue := len(t.queue) == 0
@@ -64,6 +80,26 @@ func (t *claimTracker) Write(s *session, callback func()) {
 			debugf("%p: Writer %p claimed", t, s)
 			t.writer = s
 			s.AddWriterClaim(t)
+		}
+		dentryClaimed := true
+		if dentry != "" {
+			dentryClaims := t.dentries[dentry]
+			if dentryClaims != nil {
+				delete(dentryClaims.sessions, s)
+				for ses, revoked := range dentryClaims.sessions {
+					if !revoked && ses != s {
+						t.updater.NotifyRevokeDentry(ses, dentry)
+						dentryClaims.sessions[ses] = true // Mark as revoked
+						dentryClaimed = false
+					} else if ses != s {
+						dentryClaimed = false
+					}
+				}
+				if !dentryClaimed {
+					dentryClaims.queue = append(dentryClaims.queue, callback)
+					return
+				}
+			}
 		}
 		callback()
 		return
@@ -126,6 +162,26 @@ func (t *claimTracker) RevokedReader(s *session) {
 		delete(t.readers, s)
 		debugf("%p: Reader %p revoked", t, s)
 		t.checkQueues()
+	}
+}
+
+func (t *claimTracker) RevokedDentry(s *session, dentry string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if dentryClaims, exists := t.dentries[dentry]; exists {
+		if _, exists := dentryClaims.sessions[s]; exists {
+			delete(dentryClaims.sessions, s)
+			debugf("%p: Dentry %s revoked for %p", t, dentry, s)
+		}
+		if len(dentryClaims.sessions) == 0 {
+			queue := dentryClaims.queue
+			delete(t.dentries, dentry)
+			for _, callback := range queue {
+				callback()
+			}
+		}
+	} else {
+		debugf("%p: Dentry %s not found for %p", t, dentry, s)
 	}
 }
 

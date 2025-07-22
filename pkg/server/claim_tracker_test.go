@@ -11,21 +11,31 @@ import (
 
 // testClaimUpdater is a test implementation of claimUpdater
 type testClaimUpdater struct {
-	mu               sync.Mutex
-	revokeWriterCh   chan *session
-	revokeReaderCh   chan *session
+	mu             sync.Mutex
+	revokeWriterCh chan *session
+	revokeReaderCh chan *session
+	revokeDentryCh chan struct {
+		session *session
+		dentry  string
+	}
 	claimWriterRes   bool
 	claimReaderRes   bool
 	revokedWriters   []*session
 	revokedReaders   []*session
+	revokedDentries  map[*session][]string
 	writersClaimable map[*session]bool
 	readersClaimable map[*session]bool
 }
 
 func newTestClaimUpdater() *testClaimUpdater {
 	return &testClaimUpdater{
-		revokeWriterCh:   make(chan *session, 10),
-		revokeReaderCh:   make(chan *session, 10),
+		revokeWriterCh: make(chan *session, 10),
+		revokeReaderCh: make(chan *session, 10),
+		revokeDentryCh: make(chan struct {
+			session *session
+			dentry  string
+		}, 10),
+		revokedDentries:  make(map[*session][]string),
 		writersClaimable: make(map[*session]bool),
 		readersClaimable: make(map[*session]bool),
 	}
@@ -43,6 +53,19 @@ func (t *testClaimUpdater) NotifyRevokeReader(s *session) {
 	t.revokedReaders = append(t.revokedReaders, s)
 	t.mu.Unlock()
 	t.revokeReaderCh <- s
+}
+
+func (t *testClaimUpdater) NotifyRevokeDentry(s *session, dentry string) {
+	t.mu.Lock()
+	if t.revokedDentries == nil {
+		t.revokedDentries = make(map[*session][]string)
+	}
+	t.revokedDentries[s] = append(t.revokedDentries[s], dentry)
+	t.mu.Unlock()
+	t.revokeDentryCh <- struct {
+		session *session
+		dentry  string
+	}{session: s, dentry: dentry}
 }
 
 func (t *testClaimUpdater) ClaimWriter(s *session) bool {
@@ -74,7 +97,7 @@ func TestClaimWriteBlockedByWriter(t *testing.T) {
 
 	// Session1 claims writer
 	writeDone := false
-	tracker.Write(session1, func() {
+	tracker.Write(session1, "", func() {
 		writeDone = true
 	})
 	require.True(t, writeDone, "Write operation should succeed for the first session")
@@ -84,7 +107,7 @@ func TestClaimWriteBlockedByWriter(t *testing.T) {
 	write2Done := false
 	write2CallbackCh := make(chan struct{})
 	go func() {
-		tracker.Write(session2, func() {
+		tracker.Write(session2, "", func() {
 			write2Done = true
 			write2CallbackCh <- struct{}{}
 		})
@@ -108,7 +131,7 @@ func TestClaimWriteBlockedByWriter(t *testing.T) {
 
 	// session1 can still write until the revocation is confirmed
 	write3Done := false
-	tracker.Write(session1, func() {
+	tracker.Write(session1, "", func() {
 		write3Done = true
 	})
 	require.True(t, write3Done, "Write operation should succeed for the first session")
@@ -144,7 +167,7 @@ func TestClaimReadBlockedByWriter(t *testing.T) {
 
 	// Writer session claims writer
 	writeDone := false
-	tracker.Write(writer, func() {
+	tracker.Write(writer, "", func() {
 		writeDone = true
 	})
 	require.True(t, writeDone, "Write operation should succeed for the writer session")
@@ -225,7 +248,7 @@ func TestClaimWriteBlockedByReaders(t *testing.T) {
 	writeDone := false
 	writeCallbackCh := make(chan struct{})
 	go func() {
-		tracker.Write(writer, func() {
+		tracker.Write(writer, "", func() {
 			writeDone = true
 			writeCallbackCh <- struct{}{}
 		})
@@ -300,7 +323,7 @@ func TestClaimConcurrentClaimsAndRevocations(t *testing.T) {
 
 	// Start with writer1 having the writer claim
 	writer1Done := false
-	tracker.Write(writer1, func() {
+	tracker.Write(writer1, "", func() {
 		writer1Done = true
 	})
 	require.True(t, writer1Done, "Write operation should succeed for the first writer")
@@ -317,7 +340,7 @@ func TestClaimConcurrentClaimsAndRevocations(t *testing.T) {
 		wg.Done()
 	}()
 	// Queue writer2
-	tracker.Write(writer2, func() {
+	tracker.Write(writer2, "", func() {
 		defer wg.Done()
 	})
 
@@ -332,4 +355,60 @@ func TestClaimConcurrentClaimsAndRevocations(t *testing.T) {
 
 	wg.Wait()
 	assert.Nil(t, tracker.writer, "Writer should be nil after revocation")
+}
+
+func TestDentryClaimsAndRevocations(t *testing.T) {
+	// Setup
+	updater := newTestClaimUpdater()
+	tracker := NewClaimTracker(updater)
+	tracker.dentries = make(map[string]*dentryClaimTracker)
+
+	// Create sessions for different operations
+	session1 := createMockSession(t)
+	session2 := createMockSession(t)
+
+	dentry1 := "dir1"
+	claimDone := false
+	tracker.Read(session1, func() {
+		tracker.AddDentryClaim(session1, dentry1)
+		claimDone = true
+	})
+
+	// Session1 writes with dentry "dir1"
+	require.True(t, claimDone, "Read operation should not block and should claim dentry")
+
+	// Try to write with session2 to the same dentry, which should be blocked
+	write2CallbackCh := make(chan struct{})
+	go func() {
+		tracker.Write(session2, dentry1, func() {
+			close(write2CallbackCh)
+		})
+	}()
+
+	// Verify dentry revoke was requested
+	select {
+	case revoke := <-updater.revokeDentryCh:
+		assert.Equal(t, session1, revoke.session, "Wrong session received revoke notification")
+		assert.Equal(t, dentry1, revoke.dentry, "Wrong dentry received in revoke notification")
+	case <-time.After(time.Second):
+		assert.Fail(t, "Timeout waiting for dentry revoke notification")
+	}
+
+	// Verify write2 is still blocked
+	select {
+	case <-write2CallbackCh:
+		assert.Fail(t, "Write2 callback should not have been called yet")
+	case <-time.After(10 * time.Millisecond):
+		// Expected - write2 is still blocked
+	}
+
+	// Now revoke the dentry claim
+	tracker.RevokedDentry(session1, dentry1)
+
+	// Verify write2 now succeeds
+	select {
+	case <-write2CallbackCh:
+	case <-time.After(time.Second):
+		assert.Fail(t, "Timeout waiting for write2 callback")
+	}
 }
