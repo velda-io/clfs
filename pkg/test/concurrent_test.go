@@ -2,6 +2,7 @@ package test
 
 import (
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,4 +53,36 @@ func TestConcurrentAccess(t *testing.T) {
 		assert.ErrorIs(t, err, unix.ENOENT, "Directory should not exist after removal %v:", err)
 	})
 
+	t.Run("TestListOnOtherClient", func(t *testing.T) {
+		// Setup
+		s := StartTestServer(t)
+
+		dir1 := Mount(t, s, 0, 0)
+		dir2 := Mount(t, s, 0, 0)
+
+		assert.NoError(t, os.Mkdir(dir1+"/testdir", 0755), "Mkdir should succeed")
+
+		for i := 0; i < 100; i++ {
+			file, err := os.Create(dir1 + "/testdir/file" + strconv.Itoa(i) + ".txt")
+			assert.NoError(t, err, "Create file should succeed")
+			_, err = file.Write([]byte("Content of file " + strconv.Itoa(i)))
+			assert.NoError(t, err, "Write to file should succeed")
+			assert.NoError(t, file.Close(), "Close file should succeed")
+		}
+
+		files, err := os.ReadDir(dir2 + "/testdir")
+		assert.NoError(t, err, "Read directory should succeed")
+		assert.Len(t, files, 100, "Directory should contain 100 files")
+		assert.Equal(t, files[0].Name(), "file0.txt", "File name should match created file")
+
+		for _, file := range files {
+			assert.NoError(t, os.Remove(dir1+"/testdir/"+file.Name()), "Remove file should succeed")
+		}
+
+		remainingFiles, err := os.ReadDir(dir2 + "/testdir")
+		assert.NoError(t, err, "Read directory should succeed")
+		assert.Len(t, remainingFiles, 0, "Directory should be empty after file deletion")
+		err = os.RemoveAll(dir1 + "/testdir")
+		assert.NoError(t, err, "Remove directory should succeed")
+	})
 }

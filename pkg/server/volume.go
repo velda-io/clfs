@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -64,6 +65,10 @@ func NewVolume(path string) (*Volume, error) {
 }
 
 func (v *Volume) GetNode(parentFd int, name string) (*ServerNode, error) {
+	// Only allow immediate children, except for creating the root node.
+	if strings.Contains(name, "/") && parentFd != unix.AT_FDCWD {
+		return nil, syscall.EINVAL
+	}
 	fileHandle, _, err := unix.NameToHandleAt(parentFd, name, 0)
 	if err != nil {
 		return nil, err
