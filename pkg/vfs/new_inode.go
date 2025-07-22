@@ -8,12 +8,14 @@ import (
 )
 
 type InodeInterface interface {
+	fs.InodeEmbedder
 	ResolveCookie(cookie []byte)
 	handleClaimUpdate(proto.ClaimStatus)
+	ReceiveServerRequest(res *proto.OperationResponse)
 	inode() *Inode
 }
 
-func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) fs.InodeEmbedder {
+func NewInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) InodeInterface {
 	flags := initialStat.Mode
 	switch flags & syscall.S_IFMT {
 	case syscall.S_IFDIR:

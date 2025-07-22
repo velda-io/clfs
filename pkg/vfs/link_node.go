@@ -17,7 +17,7 @@ func NewLinkNode(svc ServerProtocol, cookie []byte, flags int, target []byte, st
 	node := &LinkNode{
 		Target: target,
 	}
-	node.init(svc, cookie, flags, stat)
+	node.init(svc, cookie, flags, stat, node)
 	return node
 }
 

@@ -1,6 +1,8 @@
 package server
 
-import "sync"
+import (
+	"sync"
+)
 
 // L: Node
 // R: Session
@@ -34,6 +36,7 @@ func (t *claimTracker) setWriter(s *session) {
 	if t.writer != nil || len(t.readers) > 0 {
 		panic("Cannot set writer when there are active readers or another writer")
 	}
+	debugf("%p: Setting writer to %p", t, s)
 	t.writer = s
 	s.AddWriterClaim(t)
 }
@@ -48,7 +51,7 @@ func (t *claimTracker) Write(s *session, callback func()) {
 		return
 	}
 	if t.writer != nil && noQueue {
-		debugf("%v: Revoking writer %v, write from %v", t, t.writer, s)
+		debugf("%p: Revoking writer %p, write from %p", t, t.writer, s)
 		t.updater.NotifyRevokeWriter(t.writer)
 	}
 	if len(t.readers) > 0 && noQueue {
@@ -58,6 +61,7 @@ func (t *claimTracker) Write(s *session, callback func()) {
 	}
 	if t.writer == nil && len(t.readers) == 0 {
 		if t.updater.ClaimWriter(s) {
+			debugf("%p: Writer %p claimed", t, s)
 			t.writer = s
 			s.AddWriterClaim(t)
 		}
@@ -79,7 +83,7 @@ func (t *claimTracker) Read(s *session, callback func()) {
 				callback()
 				return
 			}
-			debugf("%v: Revoking writer %v, read from %v", t, t.writer, s)
+			debugf("%p: Revoking writer %p, read from %p", t, t.writer, s)
 			t.updater.NotifyRevokeWriter(t.writer)
 		}
 		t.queue = append(t.queue, callback)
@@ -107,7 +111,7 @@ func (t *claimTracker) Read(s *session, callback func()) {
 func (t *claimTracker) RevokedWriter(s *session) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	debugf("%v: Writer %v revoked", t, s)
+	debugf("%p: Writer %p revoked", t, s)
 	if t.writer == s {
 		t.writer = nil
 	}
@@ -120,7 +124,7 @@ func (t *claimTracker) RevokedReader(s *session) {
 	defer t.mu.Unlock()
 	if _, exists := t.readers[s]; exists {
 		delete(t.readers, s)
-		debugf("%v: Reader %v revoked", t, s)
+		debugf("%p: Reader %p revoked", t, s)
 		t.checkQueues()
 	}
 }

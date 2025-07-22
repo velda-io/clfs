@@ -2,8 +2,10 @@ package vfs
 
 import (
 	"context"
+	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -12,12 +14,12 @@ import (
 )
 
 type OpCallback func(*proto.OperationResponse, error)
-type ServerCallback func(*proto.OperationResponse)
 type ServerProtocol interface {
 	EnqueueOperation(request *proto.OperationRequest, callback OpCallback) int64
-	RegisterServerCallback(cookie []byte, callback ServerCallback)
+	RegisterServerCallback(cookie []byte, callback InodeInterface)
 	UnregisterServerCallback(cookie []byte)
 	ReportAsyncError(fmt string, args ...interface{})
+	LookupNode(cookie []byte, create func() InodeInterface) InodeInterface
 }
 
 type pendingRequest struct {
@@ -28,6 +30,7 @@ type pendingRequest struct {
 
 type Inode struct {
 	fs.Inode
+	full           InodeInterface
 	serverProtocol ServerProtocol
 	// Cookie is the identifier for the inode, used to communicate with the server.
 	cookie     []byte
@@ -40,15 +43,16 @@ type Inode struct {
 
 var _ = (InodeInterface)((*Inode)(nil))
 
-func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) {
+func (n *Inode) init(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat, full InodeInterface) {
 	n.serverProtocol = serverProtocol
 	n.cookie = cookie
 	n.syncer = NewSyncer()
 	n.cachedStat = initialStat
 	n.syncer.flags = initialSyncGrants
 	n.syncer.desiredFlags = initialSyncGrants
-	if cookie != nil {
-		serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
+	n.full = full
+	if len(cookie) > 0 {
+		serverProtocol.RegisterServerCallback(cookie, n.full)
 	}
 }
 
@@ -63,6 +67,7 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 	defer n.syncer.Complete(op)
 	if op.Async() {
 		out.Attr = *AttrFromStatProto(n.cachedStat)
+		out.SetTimeout(1 * time.Hour)
 		return fs.OK
 	}
 	response, err := n.syncOperation(ctx, &proto.OperationRequest{
@@ -77,6 +82,7 @@ func (n *Inode) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut
 		n.cachedStat = s.GetAttr.Stat
 		if s.GetAttr.ClaimUpdate != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
 			n.handleClaimUpdate(s.GetAttr.ClaimUpdate)
+			out.SetTimeout(1 * time.Hour)
 		}
 		return fs.OK
 	default:
@@ -175,7 +181,9 @@ func (n *Inode) Setattr(ctx context.Context, fh fs.FileHandle, attr *fuse.SetAtt
 }
 
 func (n *Inode) OnRevoked(lastFlag int) {
-	n.serverProtocol.UnregisterServerCallback(n.cookie)
+	n.NotifyContent(0, 0)
+	// TODO: Unregister should happen on node unregister.
+	//n.serverProtocol.UnregisterServerCallback(n.cookie)
 	update := proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED
 	switch lastFlag {
 	case SYNC_EXCLUSIVE_WRITE:
@@ -262,10 +270,11 @@ func (n *Inode) ResolveCookie(cookie []byte) {
 		}
 	}
 	n.pendingOps = nil
-	n.serverProtocol.RegisterServerCallback(cookie, n.ReceiveServerRequest)
+	n.serverProtocol.RegisterServerCallback(cookie, n)
 }
 
 func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {
+	debugf("%s %d: Handling claim update: %v %v", n.Path(nil), os.Getpid(), update, n.syncer)
 	switch update {
 	case proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED:
 		n.syncer.UpgradeClaim(SYNC_EXCLUSIVE_WRITE, SYNC_EXCLUSIVE_WRITE)

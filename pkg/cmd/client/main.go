@@ -51,12 +51,7 @@ func Mount(volume, workspaceDir string, options ...MountOptions) (*fuse.Server, 
 	svc := RunClient(*endpoint)
 
 	root := vfs.NewDirInode(svc, nil, 0, vfs.DefaultRootStat())
-	timeout := 60 * time.Second
-	negativeTimeout := 10 * time.Second
 	option := &fs.Options{
-		EntryTimeout:    &timeout,
-		AttrTimeout:     &timeout,
-		NegativeTimeout: &negativeTimeout,
 		MountOptions: fuse.MountOptions{
 			AllowOther:         true,
 			DisableReadDirPlus: true,

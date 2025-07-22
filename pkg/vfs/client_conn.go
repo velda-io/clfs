@@ -3,6 +3,7 @@ package vfs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -22,14 +23,14 @@ type Client struct {
 	reqId             int64
 	callbacks         map[int64]OpCallback // Map of cookie to callback
 	inCallback        int
-	notifies          map[string]ServerCallback // Map of cookie to server callback
+	nodes             map[string]InodeInterface // Map of cookie to server callback
 }
 
 func NewClient(conn *grpc.ClientConn) *Client {
 	c := &Client{
 		client:    proto.NewClfsServiceClient(conn),
 		callbacks: make(map[int64]OpCallback),
-		notifies:  make(map[string]ServerCallback),
+		nodes:     make(map[string]InodeInterface),
 	}
 	c.shutdownCond = sync.NewCond(&c.mu)
 	return c
@@ -65,13 +66,13 @@ func (c *Client) Run(ctx context.Context) error {
 		if response.ServerRequest != nil {
 			// This is a server notification
 			c.mu.Lock()
-			callback, ok := c.notifies[string(response.Cookie)]
+			node, ok := c.nodes[string(response.Cookie)]
 			if ok {
 				c.inCallback = 1
 			}
 			c.mu.Unlock()
 			if ok {
-				callback(response)
+				node.ReceiveServerRequest(response)
 			}
 			debugf("Received server request: %v, handled: %v", response.ServerRequest, ok)
 		} else {
@@ -124,16 +125,32 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback OpCa
 	return id
 }
 
-func (c *Client) RegisterServerCallback(cookie []byte, callback ServerCallback) {
+func (c *Client) RegisterServerCallback(cookie []byte, node InodeInterface) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.notifies[string(cookie)] = callback
+	key := string(cookie)
+	_, exists := c.nodes[key]
+	if exists {
+		panic(fmt.Sprintf("Callback already registered for cookie: %v %d", []byte(key), len(key)))
+	}
+	c.nodes[key] = node
+}
+
+func (c *Client) LookupNode(cookie []byte, create func() InodeInterface) InodeInterface {
+	// TODO: Fix sync
+	c.mu.Lock()
+	node, ok := c.nodes[string(cookie)]
+	c.mu.Unlock()
+	if !ok {
+		node = create()
+	}
+	return node
 }
 
 func (c *Client) UnregisterServerCallback(cookie []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.notifies, string(cookie))
+	delete(c.nodes, string(cookie))
 }
 
 func (c *Client) ReportAsyncError(fmt string, args ...interface{}) {

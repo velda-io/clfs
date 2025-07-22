@@ -3,6 +3,7 @@ package vfs
 import (
 	"context"
 	"syscall"
+	"time"
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
@@ -16,7 +17,7 @@ type DirInode struct {
 
 func NewDirInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *DirInode {
 	n := &DirInode{}
-	n.init(serverProtocol, cookie, initialSyncGrants, initialStat)
+	n.init(serverProtocol, cookie, initialSyncGrants, initialStat, n)
 	if initialSyncGrants != 0 {
 		n.hasFullData = true
 	}
@@ -45,6 +46,8 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 				out.Attr = a.Attr
 			}
 		}
+		// cached
+		out.SetEntryTimeout(1 * time.Hour)
 		return child, fs.OK
 	}
 	response, err := n.syncOperation(ctx, &proto.OperationRequest{
@@ -54,6 +57,7 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 		}},
 	})
 	if err != nil {
+		// TODO: Add negative entry cache
 		return nil, fs.ToErrno(err)
 	}
 	switch s := response.Response.(type) {
@@ -61,11 +65,16 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 		if s.Lookup.Cookie == nil {
 			return nil, syscall.ENOENT
 		}
+		if n.syncer.CanCache(op) {
+			debugf("Lookup: Caching child %s, current syncer: %v", name, n.syncer)
+			out.SetEntryTimeout(1 * time.Hour)
+		}
 		out.Attr = *AttrFromStatProto(s.Lookup.Stat)
-
-		node := NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
+		node := n.serverProtocol.LookupNode(s.Lookup.Cookie, func() InodeInterface {
+			return NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
+		})
 		if s.Lookup.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
-			node.(InodeInterface).handleClaimUpdate(s.Lookup.Claim)
+			node.handleClaimUpdate(s.Lookup.Claim)
 		}
 		return n.NewInode(ctx, node, fs.StableAttr{Mode: s.Lookup.Stat.Mode}), 0
 	default:
@@ -121,7 +130,7 @@ func (n *DirInode) Mkdir(ctx context.Context, name string, mode uint32, out *fus
 		case *proto.OperationResponse_Mkdir:
 			out.Attr = *AttrFromStatProto(s.Mkdir.Stat)
 			node := NewDirInode(n.serverProtocol, s.Mkdir.Cookie, SYNC_EXCLUSIVE_WRITE, s.Mkdir.Stat)
-			return n.NewInode(ctx, node, fs.StableAttr{Mode: mode | syscall.S_IFDIR}), 0
+			return n.NewInode(ctx, node, fs.StableAttr{Mode: s.Mkdir.Stat.Mode}), 0
 		default:
 			debugf("Received response with SeqId %d but unknown type: %T, expecting MkdirResponse", response.SeqId, s)
 			return nil, syscall.EIO
@@ -449,6 +458,13 @@ func (n *DirInode) Mount(ctx context.Context, volume string) error {
 	return nil
 }
 
+func (n *DirInode) OnRevoked(lastFlag int) {
+	for name := range n.Children() {
+		n.NotifyEntry(name)
+	}
+	n.Inode.OnRevoked(lastFlag)
+}
+
 var _ = (fs.NodeOpendirHandler)((*DirInode)(nil))
 
 func (n *DirInode) OpendirHandle(ctx context.Context, flags uint32) (fh fs.FileHandle, fuseFlags uint32, errno syscall.Errno) {
@@ -503,6 +519,7 @@ func (s *DirStream) Readdirent(ctx context.Context) (*fuse.DirEntry, syscall.Err
 		}
 		switch resp := response.Response.(type) {
 		case *proto.OperationResponse_ScanDir:
+			debugf("ScanDir: Fetched %d entries, offsetToken: %v", len(resp.ScanDir.Entries), resp.ScanDir.OffsetToken)
 			s.fetched = append(s.fetched, resp.ScanDir.Entries...)
 			s.offsetToken = resp.ScanDir.OffsetToken
 			// TODO: Set the node to have full data.

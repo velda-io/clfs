@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net"
 	"os"
@@ -21,6 +22,9 @@ import (
 	"velda.io/clfs/pkg/vfs"
 )
 
+var debugClient = flag.Bool("debug-client", false, "Enable debug logging for client")
+var debugServer = flag.Bool("debug-server", false, "Enable debug logging for server")
+
 type TestServer struct {
 	Addr string
 	svc  *server.ClfsServiceServer
@@ -29,7 +33,7 @@ type TestServer struct {
 func StartTestServer(t *testing.T) *TestServer {
 	//path, _ := os.MkdirTemp("", "clfs-test-server")
 	path := t.TempDir()
-	server.SetDebug(testing.Verbose())
+	server.SetDebug(*debugServer)
 	return StartTestServerWithPath(t, path)
 }
 
@@ -103,13 +107,8 @@ func runClient(endpoint string, latency time.Duration) *vfs.Client {
 func doMount(addr, dir string, debug bool, mode int, latency time.Duration) {
 	client := runClient("dns:///"+addr, latency)
 	root := vfs.NewDirInode(client, nil, mode, vfs.DefaultRootStat())
-	timeout := 60 * time.Second
-	negativeTimeout := 10 * time.Second
 	vfs.SetDebug(debug)
 	option := &fs.Options{
-		EntryTimeout:    &timeout,
-		AttrTimeout:     &timeout,
-		NegativeTimeout: &negativeTimeout,
 		MountOptions: fuse.MountOptions{
 			//AllowOther:         true,
 			DisableReadDirPlus: true,
@@ -197,7 +196,7 @@ func MountOne(t *testing.T, server *TestServer, mode int, latency time.Duration)
 	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DIR="+mntDir)
 	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
 	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
-	if testing.Verbose() {
+	if *debugClient {
 		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DEBUG=1")
 	}
 	cmd.Stdout = os.Stdout

@@ -17,7 +17,7 @@ type FileInode struct {
 
 func NewFileInode(serverProtocol ServerProtocol, cookie []byte, initialSyncGrants int, initialStat *proto.FileStat) *FileInode {
 	n := &FileInode{}
-	n.init(serverProtocol, cookie, initialSyncGrants, initialStat)
+	n.init(serverProtocol, cookie, initialSyncGrants, initialStat, n)
 	n.syncer.SetOnRevoked(n)
 	return n
 }

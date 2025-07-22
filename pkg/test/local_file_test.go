@@ -25,7 +25,7 @@ func TestWriteThenRead(t *testing.T) {
 	}{
 		{"Default", false, 0},
 		{"Remount", true, 0},
-		{"Latency", false, 500 * time.Millisecond},
+		{"Latency", false, 100 * time.Millisecond},
 	}
 	for _, tt := range tests {
 		t.Run("TestRequest"+tt.name, func(t *testing.T) {
@@ -162,6 +162,7 @@ func TestWriteThenRead(t *testing.T) {
 
 			dir = remount(dir, tt.remount, t, s, mode, 0)
 
+			t.Log("Verifying large directory creation")
 			files, err := os.ReadDir(dir + "/large-dir")
 			assert.NoError(t, err, "ReadDir should succeed")
 			assert.Len(t, files, 1000, "Directory should contain 1000 files")

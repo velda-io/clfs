@@ -14,14 +14,14 @@ import (
 // MockServerProtocol is a mock implementation of ServerProtocol for testing
 type MockServerProtocol struct {
 	mock.Mock
-	callbacks map[string]ServerCallback
+	callbacks map[string]InodeInterface
 	mu        sync.Mutex
 	t         *testing.T
 }
 
 func NewMockServerProtocol(t *testing.T) *MockServerProtocol {
 	return &MockServerProtocol{
-		callbacks: make(map[string]ServerCallback),
+		callbacks: make(map[string]InodeInterface),
 		t:         t,
 	}
 }
@@ -35,11 +35,11 @@ func (m *MockServerProtocol) EnqueueOperation(request *proto.OperationRequest, c
 	return int64(args.Int(0))
 }
 
-func (m *MockServerProtocol) RegisterServerCallback(cookie []byte, callback ServerCallback) {
+func (m *MockServerProtocol) RegisterServerCallback(cookie []byte, node InodeInterface) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Called(cookie, mock.Anything)
-	m.callbacks[string(cookie)] = callback
+	m.callbacks[string(cookie)] = node
 }
 
 func (m *MockServerProtocol) UnregisterServerCallback(cookie []byte) {
@@ -58,8 +58,19 @@ func (m *MockServerProtocol) TriggerCallback(cookie []byte, response *proto.Oper
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if cb, ok := m.callbacks[string(cookie)]; ok {
-		cb(response)
+		cb.ReceiveServerRequest(response)
 	}
+}
+
+func (m *MockServerProtocol) LookupNode(cookie []byte, create func() InodeInterface) InodeInterface {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if node, ok := m.callbacks[string(cookie)]; ok {
+		return node
+	}
+	node := create()
+	m.callbacks[string(cookie)] = node
+	return node
 }
 
 type DummyServer struct {
@@ -71,7 +82,7 @@ func (d *DummyServer) EnqueueOperation(request *proto.OperationRequest, callback
 	return 1
 }
 
-func (d *DummyServer) RegisterServerCallback(cookie []byte, callback ServerCallback) {
+func (d *DummyServer) RegisterServerCallback(cookie []byte, node InodeInterface) {
 }
 
 func (d *DummyServer) UnregisterServerCallback(cookie []byte) {
@@ -79,6 +90,10 @@ func (d *DummyServer) UnregisterServerCallback(cookie []byte) {
 
 func (d *DummyServer) ReportAsyncError(fmt string, args ...interface{}) {
 	d.t.Errorf(fmt, args...)
+}
+
+func (d *DummyServer) LookupNode(cookie []byte, create func() InodeInterface) InodeInterface {
+	return create()
 }
 
 func testMount(t *testing.T, root fs.InodeEmbedder, opts *fs.Options) (string, *fuse.Server) {

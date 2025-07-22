@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"unsafe"
 
@@ -175,7 +176,7 @@ func (n *ServerNode) Mount(s *session, req *proto.MountRequest) (*proto.Operatio
 		Response: &proto.OperationResponse_Mount{
 			Mount: &proto.MountResponse{
 				Cookie: s.GetCookie(n),
-				Claim:  proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED,
+				Claim:  0,
 				Stat:   StatProtoFromSysStat(&stat),
 			},
 		},
@@ -390,41 +391,74 @@ func (n *ServerNode) ScanDirectory(s *session, req *proto.ScanDirectoryRequest) 
 	}
 	defer unix.Close(df)
 
-	// 4096 is a reasonable buffer size for directory entries
-	buf := make([]byte, 4096)
-	nread, err := unix.Getdents(df, buf)
-	if err != nil {
-		return nil, err
-	}
-
-	var entries []*proto.DirEntry
-	for ptr := 0; ptr < nread; {
-		dirent := (*unix.Dirent)(unsafe.Pointer(&buf[ptr]))
-		nameBytes := buf[ptr+int(unsafe.Offsetof(unix.Dirent{}.Name)) : ptr+int(dirent.Reclen)]
-		name := string(bytes.TrimRight(nameBytes, "\x00"))
-
-		if name != "." && name != ".." {
-			var stat unix.Stat_t
-			if err := unix.Fstatat(n.fd, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err == nil {
-				child, err := s.volume.GetNode(n.fd, name)
-				if err != nil {
-					continue
-				}
-				entries = append(entries, &proto.DirEntry{
-					Name:   name,
-					Cookie: s.GetCookie(child),
-					Inode:  stat.Ino,
-					Type:   uint32(dirent.Type),
-				})
-			}
+	var offset int64
+	if len(req.Token) > 0 {
+		// decode token as int64
+		if len(req.Token) != 8 {
+			return nil, fmt.Errorf("%w:invalid token length: %d", unix.EINVAL, len(req.Token))
 		}
-		ptr += int(dirent.Reclen)
+		binary.Read(bytes.NewReader(req.Token), binary.LittleEndian, &offset)
+		if _, err := unix.Seek(df, offset, unix.SEEK_SET); err != nil {
+			return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+		}
+	}
+	firstScan := true
+
+	var nextToken []byte
+	var entries []*proto.DirEntry
+
+	for {
+		// 4096 is a reasonable buffer size for directory entries
+		buf := make([]byte, 4096)
+		nread, err := unix.Getdents(df, buf)
+		if err != nil {
+			return nil, err
+		}
+		if nread == 0 {
+			break
+		}
+
+		for ptr := 0; ptr < nread; {
+			dirent := (*unix.Dirent)(unsafe.Pointer(&buf[ptr]))
+			nameBytes := buf[ptr+int(unsafe.Offsetof(unix.Dirent{}.Name)) : ptr+int(dirent.Reclen)]
+			name := string(bytes.TrimRight(nameBytes, "\x00"))
+
+			if name != "." && name != ".." {
+				var stat unix.Stat_t
+				if err := unix.Fstatat(n.fd, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err == nil {
+					child, err := s.volume.GetNode(n.fd, name)
+					if err != nil {
+						continue
+					}
+					entries = append(entries, &proto.DirEntry{
+						Name:   name,
+						Cookie: s.GetCookie(child),
+						Inode:  stat.Ino,
+						Type:   uint32(dirent.Type),
+					})
+				}
+			}
+			ptr += int(dirent.Reclen)
+		}
+		if firstScan {
+			// For a small directory, we immediately tell it's end of the stream.
+			// Otherwise, we return 2 pages plus the next token(which may already at end).
+			firstScan = false
+			continue
+		}
+		offset, err = unix.Seek(df, 0, unix.SEEK_CUR)
+		if err != nil {
+			return nil, err
+		}
+		nextToken = make([]byte, 8)
+		binary.LittleEndian.PutUint64(nextToken, uint64(offset))
 	}
 
 	return &proto.OperationResponse{
 		Response: &proto.OperationResponse_ScanDir{
 			ScanDir: &proto.ScanDirectoryResponse{
-				Entries: entries,
+				Entries:     entries,
+				OffsetToken: nextToken,
 			},
 		},
 	}, nil
@@ -456,6 +490,7 @@ func (n *ServerNode) Create(s *session, req *proto.CreateRequest) (*proto.Operat
 				Cookie:     s.GetCookie(child),
 				FileHandle: fh,
 				Stat:       StatProtoFromSysStat(&stat),
+				Claim:      proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED,
 			},
 		},
 	}, nil

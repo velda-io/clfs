@@ -3,6 +3,7 @@ package vfs
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -18,6 +19,7 @@ type operation struct {
 	readonly     bool // Indicates if the operation is read-only
 	async        bool
 	startedAsync bool
+	generation   int64 // Used to track the generation of the operation
 }
 
 func (o *operation) Async() bool {
@@ -34,6 +36,7 @@ type syncer struct {
 	writerActive bool
 	readers      int
 	asyncOps     int
+	generation   atomic.Int64 // Used to track the generation of the syncer
 
 	// Notify the Inode to
 	// 1. Clear current cached data
@@ -154,9 +157,15 @@ func (s *syncer) UpgradeClaim(mask, newFlag int) {
 	}
 }
 
+func (s *syncer) CanCache(op *operation) bool {
+	return op.async && op.generation == s.generation.Load()
+}
+
 func (s *syncer) checkClaimUpdates() bool {
 	if s.flags != s.desiredFlags && s.emptyLocked() {
+		debugf("%p Claim update: %b -> %b", s, s.flags, s.desiredFlags)
 		if s.notif != nil && s.desiredFlags == 0 {
+			s.generation.Add(1)
 			s.notif.OnRevoked(s.flags)
 		}
 		s.flags = s.desiredFlags
