@@ -63,7 +63,8 @@ func TestConcurrentAccess(t *testing.T) {
 		assert.NoError(t, os.Mkdir(dir1+"/testdir", 0755), "Mkdir should succeed")
 
 		for i := 0; i < 100; i++ {
-			file, err := os.Create(dir1 + "/testdir/file" + strconv.Itoa(i) + ".txt")
+			assert.NoError(t, os.Mkdir(dir1+"/testdir/subdir"+strconv.Itoa(i), 0755), "Mkdir subdir should succeed")
+			file, err := os.Create(dir1 + "/testdir/subdir" + strconv.Itoa(i) + "/file.txt")
 			assert.NoError(t, err, "Create file should succeed")
 			_, err = file.Write([]byte("Content of file " + strconv.Itoa(i)))
 			assert.NoError(t, err, "Write to file should succeed")
@@ -73,10 +74,10 @@ func TestConcurrentAccess(t *testing.T) {
 		files, err := os.ReadDir(dir2 + "/testdir")
 		assert.NoError(t, err, "Read directory should succeed")
 		assert.Len(t, files, 100, "Directory should contain 100 files")
-		assert.Equal(t, files[0].Name(), "file0.txt", "File name should match created file")
+		assert.Equal(t, files[0].Name(), "subdir0", "First subdirectory should be subdir0")
 
 		for _, file := range files {
-			assert.NoError(t, os.Remove(dir1+"/testdir/"+file.Name()), "Remove file should succeed")
+			assert.NoError(t, os.RemoveAll(dir1+"/testdir/"+file.Name()), "Remove file should succeed")
 		}
 
 		remainingFiles, err := os.ReadDir(dir2 + "/testdir")
