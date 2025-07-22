@@ -39,8 +39,10 @@ message OperationRequest {
     CloseRequest close = 16;   // Request to close a file
     CreateRequest create = 17; // Request to create a file
 
-    MountRequest mount = 18; // Request to mount a filesystem
+    MountRequest mount = 18;   // Request to mount a filesystem
     UmountRequest umount = 19; // Request to unmount a filesystem
+
+    // No response from server.
     ClaimUpdateResponse claim_update = 21; // Claim update request
   }
 }
@@ -52,9 +54,9 @@ message ErrorResponse {
 }
 
 message OperationResponse {
-  // Sequence ID of the request, 0 if it's notification from the server
+  // Sequence ID of the request, 0/negative if it's notification from the server
   int64 seq_id = 1;
-  bytes cookie = 2; // Cookie for the identity of the inode.
+  bytes cookie = 2;        // Cookie for the identity of the inode.
   ErrorResponse error = 3; // Error response if the operation failed
   oneof response {
     MkdirResponse mkdir = 5;
@@ -62,7 +64,7 @@ message OperationResponse {
     GetAttrResponse get_attr = 7;
     MknodResponse mknod = 8;
     RmdirResponse rmdir = 9;        // Response to remove a directory
-    UnlinkResponse unlink = 10;      // Response to remove a file
+    UnlinkResponse unlink = 10;     // Response to remove a file
     SymlinkResponse symlink = 11;   // Response to create a symlink
     ReadlinkResponse readlink = 12; // Response to read a symlink
     SetAttrResponse set_attr =
@@ -75,13 +77,20 @@ message OperationResponse {
     CloseResponse close = 18;   // Response to close a file
     CreateResponse create = 19; // Response to create a file
 
-    MountResponse mount = 20; // Response to mount a filesystem
+    MountResponse mount = 20;   // Response to mount a filesystem
     UmountResponse umount = 21; // Response to unmount a filesystem
   }
 
   // Notifications from the server.
   oneof server_request {
-    ClaimUpdateServerRequest claim_update = 4; // Claim update request
+    // Claim update request
+    // Expect claim_update request directly without explicit response ID.
+    // Client can also initiate the revocation without being requested.
+    ClaimUpdateServerRequest claim_update = 4;
+
+    // Dentry invalidation request, only for lookups without any claim.
+    // Expects empty response.
+    DentryInvalidationServerRequest dentry_invalidation = 22;
   }
 }
 
@@ -221,15 +230,14 @@ message CloseResponse {
 message ClaimUpdateServerRequest {
   ClaimStatus status = 1; // Status of the claim update
 }
+message DentryInvalidationServerRequest { string name = 1; }
 
 message ClaimUpdateResponse {
   ClaimStatus status = 1; // Status of the claim update
 }
 
-message UmountRequest {
-}
-message UmountResponse {
-}
+message UmountRequest {}
+message UmountResponse {}
 
 message MountRequest {
   // Volume name.

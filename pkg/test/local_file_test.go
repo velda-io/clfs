@@ -17,22 +17,23 @@ func remount(dir string, remount bool, t *testing.T, s *TestServer, mode int, la
 	return dir
 }
 func TestWriteThenRead(t *testing.T) {
-	mode := 0
 	tests := []struct {
 		name    string
+		mode    int
 		remount bool
 		latency time.Duration
 	}{
-		{"Default", false, 0},
-		{"Remount", true, 0},
-		{"Latency", false, 100 * time.Millisecond},
+		{"Default", 0, false, 0},
+		{"Remount", 0, true, 0},
+		{"Latency", 0, false, 100 * time.Millisecond},
+		{"Local", MODE_LOCAL, false, 0},
 	}
 	for _, tt := range tests {
 		t.Run("TestRequest"+tt.name, func(t *testing.T) {
 			// Setup
 			s := StartTestServer(t)
 
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			assert.NoError(t, os.Mkdir(dir+"/testdir", 0755), "Mkdir should succeed")
 
@@ -49,7 +50,7 @@ func TestWriteThenRead(t *testing.T) {
 			assert.NoError(t, err, "Write to second file should succeed")
 			assert.NoError(t, file2.Close(), "Close file should succeed")
 
-			dir = remount(dir, tt.remount, t, s, mode, tt.latency)
+			dir = remount(dir, tt.remount, t, s, tt.mode, tt.latency)
 
 			content, err := os.ReadFile(dir + "/testdir/testfile.txt")
 			assert.NoError(t, err, "Read file should succeed")
@@ -65,7 +66,7 @@ func TestWriteThenRead(t *testing.T) {
 
 		t.Run("TestFStat"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			file, err := os.Create(dir + "/testfile.txt")
 			assert.NoError(t, err, "Create file should succeed")
@@ -73,7 +74,7 @@ func TestWriteThenRead(t *testing.T) {
 			assert.NoError(t, err, "Write to file should succeed")
 			assert.NoError(t, file.Close(), "Close file should succeed")
 
-			dir = remount(dir, tt.remount, t, s, mode, tt.latency)
+			dir = remount(dir, tt.remount, t, s, tt.mode, tt.latency)
 
 			fi, err := os.Stat(dir + "/testfile.txt")
 			assert.NoError(t, err, "Stat file should succeed")
@@ -83,7 +84,7 @@ func TestWriteThenRead(t *testing.T) {
 
 		t.Run("TestListDir"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			err := os.Mkdir(dir+"/testdir", 0755)
 			assert.NoError(t, err, "Mkdir should succeed")
@@ -94,7 +95,7 @@ func TestWriteThenRead(t *testing.T) {
 			assert.NoError(t, err, "Write to file should succeed")
 			assert.NoError(t, file.Close(), "Close file should succeed")
 
-			dir = remount(dir, tt.remount, t, s, mode, tt.latency)
+			dir = remount(dir, tt.remount, t, s, tt.mode, tt.latency)
 
 			files, err := os.ReadDir(dir + "/testdir")
 			assert.NoError(t, err, "ReadDir should succeed")
@@ -104,7 +105,7 @@ func TestWriteThenRead(t *testing.T) {
 
 		t.Run("TestSetAttr"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			file, err := os.Create(dir + "/testfile.txt")
 			assert.NoError(t, err, "Create file should succeed")
@@ -115,7 +116,7 @@ func TestWriteThenRead(t *testing.T) {
 			err = os.Chmod(dir+"/testfile.txt", 0644)
 			assert.NoError(t, err, "Chmod should succeed")
 
-			dir = remount(dir, tt.remount, t, s, mode, tt.latency)
+			dir = remount(dir, tt.remount, t, s, tt.mode, tt.latency)
 
 			fi, err := os.Stat(dir + "/testfile.txt")
 			assert.NoError(t, err, "Stat file should succeed")
@@ -124,7 +125,7 @@ func TestWriteThenRead(t *testing.T) {
 
 		t.Run("TestExecFile"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			file, err := os.Create(dir + "/run.sh")
 			assert.NoError(t, err, "Create file should succeed")
@@ -136,7 +137,7 @@ func TestWriteThenRead(t *testing.T) {
 			err = os.Chmod(dir+"/run.sh", 0755)
 			assert.NoError(t, err, "Chmod for execution should succeed")
 
-			dir = remount(dir, tt.remount, t, s, mode, tt.latency)
+			dir = remount(dir, tt.remount, t, s, tt.mode, tt.latency)
 
 			cmd := exec.Command("sh", dir+"/run.sh")
 			output, err := cmd.CombinedOutput()
@@ -147,20 +148,35 @@ func TestWriteThenRead(t *testing.T) {
 		// A newly created directory should have a write-exclusive claim, so all writes are async.
 		t.Run("TestCreateLargeDir"+tt.name, func(t *testing.T) {
 			s := StartTestServer(t)
-			dir := Mount(t, s, mode, tt.latency)
+			dir := Mount(t, s, tt.mode, tt.latency)
 
 			err := os.Mkdir(dir+"/large-dir", 0755)
 			assert.NoError(t, err, "Mkdir for large directory should succeed")
 			// Create a large directory with many files
+			var totalCreateTime, totalWriteTime, totalCloseTime time.Duration
+
 			for i := 0; i < 1000; i++ {
+				start := time.Now()
+
 				file, err := os.Create(dir + "/large-dir/file" + strconv.Itoa(i) + ".txt")
 				assert.NoError(t, err, "Create file should succeed")
+				totalCreateTime += time.Since(start)
+
+				start = time.Now()
 				_, err = file.Write([]byte("This is file number " + strconv.Itoa(i)))
 				assert.NoError(t, err, "Write to file should succeed")
+				totalWriteTime += time.Since(start)
+
+				start = time.Now()
 				assert.NoError(t, file.Close(), "Close file should succeed")
+				totalCloseTime += time.Since(start)
 			}
 
-			dir = remount(dir, tt.remount, t, s, mode, 0)
+			t.Logf("Total file creation time: %v", totalCreateTime)
+			t.Logf("Total file write time: %v", totalWriteTime)
+			t.Logf("Total file close time: %v", totalCloseTime)
+
+			dir = remount(dir, tt.remount, t, s, tt.mode, 0)
 
 			t.Log("Verifying large directory creation")
 			files, err := os.ReadDir(dir + "/large-dir")

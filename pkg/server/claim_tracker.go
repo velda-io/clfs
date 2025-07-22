@@ -46,7 +46,14 @@ func (t *claimTracker) setWriter(s *session) {
 }
 
 func (t *claimTracker) AddDentryClaim(s *session, dentry string) {
+	if t.writer != nil || len(t.readers) > 0 {
+		// No per-dentry tracking.
+		return
+	}
 	// Must be locked by the caller
+	if t.dentries == nil {
+		t.dentries = make(map[string]*dentryClaimTracker)
+	}
 	if d, exists := t.dentries[dentry]; !exists {
 		t.dentries[dentry] = &dentryClaimTracker{
 			sessions: map[*session]bool{s: false},
@@ -80,6 +87,9 @@ func (t *claimTracker) Write(s *session, dentry string, callback func()) {
 			debugf("%p: Writer %p claimed", t, s)
 			t.writer = s
 			s.AddWriterClaim(t)
+			t.dentries = nil
+			callback()
+			return
 		}
 		dentryClaimed := true
 		if dentry != "" {
@@ -138,6 +148,7 @@ func (t *claimTracker) Read(s *session, callback func()) {
 		if t.updater.ClaimReader(s) {
 			t.readers[s] = true
 			s.AddReaderClaim(t)
+			t.dentries = nil
 		}
 	}
 	callback()

@@ -74,7 +74,6 @@ func (c *Client) Run(ctx context.Context) error {
 			if ok {
 				node.ReceiveServerRequest(response)
 			}
-			debugf("Received server request: %v, handled: %v", response.ServerRequest, ok)
 		} else {
 			c.mu.Lock()
 			callback, ok := c.callbacks[response.SeqId]
@@ -110,13 +109,16 @@ func (c *Client) EnqueueOperation(request *proto.OperationRequest, callback OpCa
 	if c.shutdownCompleted {
 		panic("Client is already shutdown")
 	}
-	c.reqId++
-	id := c.reqId
+	id := request.SeqId
+	if request.SeqId == 0 {
+		c.reqId++
+		request.SeqId = c.reqId
+		id = c.reqId
+	}
 	if callback != nil {
 		c.callbacks[id] = callback
 	}
 	c.mu.Unlock()
-	request.SeqId = id
 	debugf("Enqueuing operation %d: %v", id, request)
 	err := c.Stream.Send(request)
 	if err != nil {

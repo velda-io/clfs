@@ -73,6 +73,7 @@ func (n *DirInode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 		node := n.serverProtocol.LookupNode(s.Lookup.Cookie, func() InodeInterface {
 			return NewInode(n.serverProtocol, s.Lookup.Cookie, 0, s.Lookup.Stat)
 		})
+		out.SetEntryTimeout(1 * time.Hour)
 		if s.Lookup.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
 			node.handleClaimUpdate(s.Lookup.Claim)
 		}
@@ -456,6 +457,18 @@ func (n *DirInode) Mount(ctx context.Context, volume string) error {
 		n.cachedStat = s.Mount.Stat
 	}
 	return nil
+}
+
+func (n *DirInode) ReceiveServerRequest(response *proto.OperationResponse) {
+	switch t := response.ServerRequest.(type) {
+	case *proto.OperationResponse_DentryInvalidation:
+		n.NotifyEntry(t.DentryInvalidation.Name)
+		n.asyncOperation(context.Background(), &proto.OperationRequest{
+			SeqId: response.SeqId,
+		}, nil)
+	default:
+		n.Inode.ReceiveServerRequest(response)
+	}
 }
 
 func (n *DirInode) OnRevoked(lastFlag int) {

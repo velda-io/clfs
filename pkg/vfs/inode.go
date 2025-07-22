@@ -270,7 +270,7 @@ func (n *Inode) ResolveCookie(cookie []byte) {
 		}
 	}
 	n.pendingOps = nil
-	n.serverProtocol.RegisterServerCallback(cookie, n)
+	n.serverProtocol.RegisterServerCallback(cookie, n.full)
 }
 
 func (n *Inode) handleClaimUpdate(update proto.ClaimStatus) {

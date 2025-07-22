@@ -15,6 +15,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"velda.io/clfs/pkg/proto"
@@ -24,6 +25,10 @@ import (
 
 var debugClient = flag.Bool("debug-client", false, "Enable debug logging for client")
 var debugServer = flag.Bool("debug-server", false, "Enable debug logging for server")
+
+const MODE_DEFAULT = 0
+const MODE_LOCAL = 1
+const MODE_INPROCESS = 2
 
 type TestServer struct {
 	Addr string
@@ -106,7 +111,7 @@ func runClient(endpoint string, latency time.Duration) *vfs.Client {
 
 func doMount(addr, dir string, debug bool, mode int, latency time.Duration) {
 	client := runClient("dns:///"+addr, latency)
-	root := vfs.NewDirInode(client, nil, mode, vfs.DefaultRootStat())
+	root := vfs.NewDirInode(client, nil, 0, vfs.DefaultRootStat())
 	vfs.SetDebug(debug)
 	option := &fs.Options{
 		MountOptions: fuse.MountOptions{
@@ -158,6 +163,8 @@ func mountMain() {
 	if err != nil {
 		log.Fatalf("Invalid CLFS_TEST_MOUNT_MODE: %v", err)
 	}
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+
 	doMount(addr, dir, debug, int(mode), time.Duration(latency)*time.Millisecond)
 	os.Exit(0)
 }
@@ -181,32 +188,43 @@ func Mount(t *testing.T, server *TestServer, mode int, latency time.Duration) st
 	return mntDir
 }
 
-func MountOne(t *testing.T, server *TestServer, mode int, latency time.Duration) (string, func()) {
+func MountOne(t *testing.T, server *TestServer, mode int, latency time.Duration) (mntDir string, stop func()) {
 	t.Helper()
 
-	mntDir := t.TempDir()
+	mntDir = t.TempDir()
 	oldStat, err := os.Stat(mntDir)
 	if err != nil {
 		t.Fatalf("Failed to stat mount directory %s: %v", mntDir, err)
 	}
-	// Use a subprocess to avoid dead-locks on errors.
-	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), "CLFS_TEST_MOUNT=1")
-	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_ADDR="+server.Addr)
-	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DIR="+mntDir)
-	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
-	cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
-	if *debugClient {
-		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DEBUG=1")
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	stop := func() {
-		cmd.Process.Signal(syscall.SIGTERM)
-		cmd.Process.Wait()
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("Failed to start mount command: %v", err)
+	switch mode {
+	case MODE_LOCAL:
+		return mntDir, func() {}
+	case MODE_INPROCESS:
+		go doMount(server.Addr, mntDir, *debugClient, mode, latency)
+		stop = func() {
+			// TODO: may not have permission?
+			unix.Unmount(mntDir, 0)
+		}
+	case MODE_DEFAULT:
+		// Use a subprocess to avoid dead-locks on errors.
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), "CLFS_TEST_MOUNT=1")
+		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_ADDR="+server.Addr)
+		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DIR="+mntDir)
+		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_MODE="+strconv.Itoa(mode))
+		cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_LATENCY="+strconv.Itoa(int(latency.Milliseconds())))
+		if *debugClient {
+			cmd.Env = append(cmd.Env, "CLFS_TEST_MOUNT_DEBUG=1")
+		}
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		stop = func() {
+			cmd.Process.Signal(syscall.SIGTERM)
+			cmd.Process.Wait()
+		}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("Failed to start mount command: %v", err)
+		}
 	}
 	// Wait until mount is ready
 	for {

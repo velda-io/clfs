@@ -43,6 +43,7 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 		resp, err := n.handle(s, req)
 		callback(resp, err)
 	}
+	var dentry string
 	var readonly bool
 	switch op := req.Operation.(type) {
 	case *proto.OperationRequest_ClaimUpdate:
@@ -64,13 +65,19 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 	case *proto.OperationRequest_Read:
 		readonly = true
 
-	case *proto.OperationRequest_SetAttr:
 	case *proto.OperationRequest_Mknod:
+		dentry = op.Mknod.Name
 	case *proto.OperationRequest_Mkdir:
+		dentry = op.Mkdir.Name
 	case *proto.OperationRequest_Rmdir:
+		dentry = op.Rmdir.Name
 	case *proto.OperationRequest_Unlink:
+		dentry = op.Unlink.Name
 	case *proto.OperationRequest_Symlink:
+		dentry = op.Symlink.Name
 	case *proto.OperationRequest_Create:
+		dentry = op.Create.Name
+	case *proto.OperationRequest_SetAttr:
 	case *proto.OperationRequest_Write:
 	case *proto.OperationRequest_Close:
 	case *proto.OperationRequest_Mount:
@@ -85,7 +92,7 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 	if readonly {
 		n.tracker.Read(s, do)
 	} else {
-		n.tracker.Write(s, "", do)
+		n.tracker.Write(s, dentry, do)
 	}
 }
 
@@ -130,6 +137,7 @@ func (n *ServerNode) handle(s *session, req *proto.OperationRequest) (*proto.Ope
 }
 
 func (n *ServerNode) Lookup(s *session, req *proto.LookupRequest) (*proto.OperationResponse, error) {
+	n.tracker.AddDentryClaim(s, req.Name)
 	child, err := n.volume.GetNode(n.fd, req.Name)
 	if err != nil {
 		return nil, err
@@ -569,7 +577,7 @@ func (n *ServerNode) NotifyRevokeWriter(s *session) {
 				Status: proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_REVOKED,
 			},
 		},
-	})
+	}, nil)
 }
 
 func (n *ServerNode) NotifyRevokeReader(s *session) {
@@ -579,10 +587,19 @@ func (n *ServerNode) NotifyRevokeReader(s *session) {
 				Status: proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_REVOKED,
 			},
 		},
-	})
+	}, nil)
 }
 
 func (n *ServerNode) NotifyRevokeDentry(s *session, dentry string) {
+	s.SendNotify(n, &proto.OperationResponse{
+		ServerRequest: &proto.OperationResponse_DentryInvalidation{
+			DentryInvalidation: &proto.DentryInvalidationServerRequest{
+				Name: dentry,
+			},
+		},
+	}, func(resp *proto.OperationRequest, err error) {
+		n.tracker.RevokedDentry(s, dentry)
+	})
 }
 
 func (n *ServerNode) ClaimWriter(s *session) bool {

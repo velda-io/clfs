@@ -8,6 +8,8 @@ import (
 	"velda.io/clfs/pkg/proto"
 )
 
+type ServerRequestCallback func(*proto.OperationRequest, error)
+
 type session struct {
 	volume      *Volume // The volume this session is associated with
 	streamMu    sync.RWMutex
@@ -18,6 +20,10 @@ type session struct {
 	claimMu      sync.Mutex // Protects the claim tracker
 	writerClaims map[*claimTracker]bool
 	readerClaims map[*claimTracker]bool
+
+	callbackMu  sync.Mutex                      // Protects callbacks
+	serverReqId int64                           // Current request ID for server requests
+	callbacks   map[int64]ServerRequestCallback // Map of request IDs to callbacks
 }
 
 func NewSession(stream proto.ClfsService_ServeServer, volume *Volume) *session {
@@ -27,6 +33,7 @@ func NewSession(stream proto.ClfsService_ServeServer, volume *Volume) *session {
 		fileHandles:  make(map[string]int),
 		writerClaims: make(map[*claimTracker]bool),
 		readerClaims: make(map[*claimTracker]bool),
+		callbacks:    make(map[int64]ServerRequestCallback),
 	}
 }
 
@@ -67,6 +74,16 @@ func (s *session) closeFileHandle(handle []byte) {
 }
 
 func (sess *session) HandleOp(req *proto.OperationRequest) {
+	if req.SeqId < 0 {
+		sess.callbackMu.Lock()
+		callback, exists := sess.callbacks[req.SeqId]
+		delete(sess.callbacks, req.SeqId)
+		sess.callbackMu.Unlock()
+		if exists {
+			callback(req, nil) // Call the callback with no error
+		}
+		return
+	}
 	node, err := sess.DecodeCookie(req.Cookie)
 	if err != nil {
 		sess.streamMu.RLock()
@@ -106,17 +123,24 @@ func (sess *session) handleOp(node *ServerNode, req *proto.OperationRequest) {
 	node.Handle(sess, req, run)
 }
 
-func (sess *session) SendNotify(node *ServerNode, op *proto.OperationResponse) {
+func (sess *session) SendNotify(node *ServerNode, op *proto.OperationResponse, callback func(*proto.OperationRequest, error)) {
 	sess.streamMu.RLock()
 	defer sess.streamMu.RUnlock()
 	if sess.stream == nil {
 		debugf("Session stream is closed, cannot send notification")
 		return
 	}
-	if err := sess.stream.Send(&proto.OperationResponse{
-		ServerRequest: op.ServerRequest,
-		Cookie:        sess.GetCookie(node),
-	}); err != nil {
+	op.Cookie = sess.GetCookie(node)
+	if callback != nil {
+		sess.callbackMu.Lock()
+		// Use negative IDs for callbacks to avoid conflicts with regular requests
+		sess.serverReqId--
+		reqId := sess.serverReqId
+		sess.callbacks[reqId] = callback
+		sess.callbackMu.Unlock()
+		op.SeqId = reqId
+	}
+	if err := sess.stream.Send(op); err != nil {
 		debugf("Failed to send notification: %v", err)
 	}
 }
