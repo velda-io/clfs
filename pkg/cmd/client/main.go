@@ -17,11 +17,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"velda.io/clfs/pkg/test"
 	"velda.io/clfs/pkg/vfs"
 )
 
 var debug = flag.Bool("debug", false, "Enable debug logging")
 var endpoint = flag.String("endpoint", "dns:///localhost:50055", "gRPC endpoint to connect to")
+var debugEndpoint = flag.String("debug-endpoint", "localhost:6070", "Endpoint for pprof debug server")
+var injectLatency = flag.Duration("inject-latency", 0, "Inject latency into gRPC client requests")
 
 type MountOptions func(*fs.Options)
 
@@ -33,6 +36,10 @@ func RunClient(endpoint string) vfs.ServerProtocol {
 
 	c := vfs.NewClient(conn)
 	err = c.Start(context.Background())
+	if *injectLatency > 0 {
+		log.Printf("Injecting %v latency into gRPC client requests", *injectLatency)
+		c.Stream = test.NewLatencyInjectedStream(c.Stream, *injectLatency)
+	}
 	if err != nil {
 		log.Fatalf("Client start error: %v", err)
 	}
@@ -87,7 +94,10 @@ func main() {
 	}
 
 	go func() {
-		lis, _ := net.Listen("tcp", ":6070")
+		if *debugEndpoint == "" {
+			return
+		}
+		lis, _ := net.Listen("tcp", *debugEndpoint)
 		http.Serve(lis, nil)
 	}()
 

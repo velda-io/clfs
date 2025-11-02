@@ -58,11 +58,14 @@ func (n *FileInode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint
 		switch resp := response.Response.(type) {
 		case *proto.OperationResponse_Open:
 			fh.SetHandle(resp.Open.FileHandle)
+			if resp.Open.Claim != proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED {
+				n.handleClaimUpdate(resp.Open.Claim)
+			}
 		default:
 			debugf("Open: Unexpected response type: %T", resp)
 		}
 	})
-	return fh, 0, errno
+	return fh, fuse.FOPEN_NOFLUSH, errno
 }
 
 func (n *FileInode) Read(ctx context.Context, fh fs.FileHandle, dest []byte, offset int64) (fuse.ReadResult, syscall.Errno) {
@@ -92,6 +95,7 @@ func (n *FileInode) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off
 	}
 	switch resp := response.Response.(type) {
 	case *proto.OperationResponse_Read:
+		n.cache.Insert(offset, resp.Read.Data)
 		return fuse.ReadResultData(resp.Read.Data), fs.OK
 	default:
 		debugf("Read: Unexpected response type: %T", resp)
