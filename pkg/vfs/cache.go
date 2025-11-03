@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"sort"
+	"sync"
 )
 
 // Interval represents a cache interval with data starting at a specific offset
@@ -12,6 +13,7 @@ type Interval struct {
 
 // Cache stores data as sorted intervals (offset, data)
 type Cache struct {
+	mu        sync.RWMutex
 	intervals []Interval
 }
 
@@ -25,6 +27,9 @@ func NewCache() *Cache {
 // Insert adds or updates data at the specified offset
 // It handles merging intervals when they overlap or connect
 func (c *Cache) Insert(offset int64, data []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if len(data) == 0 {
 		return
 	}
@@ -70,6 +75,9 @@ func (c *Cache) Insert(offset int64, data []byte) {
 // Read retrieves data from the cache starting at the specified offset
 // with the specified length
 func (c *Cache) Read(offset int64, length int) []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if length <= 0 {
 		return nil
 	}
@@ -91,11 +99,17 @@ func (c *Cache) Read(offset int64, length int) []byte {
 
 // Clear removes all intervals from the cache
 func (c *Cache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.intervals = []Interval{}
 }
 
 // Size returns the number of intervals in the cache
 func (c *Cache) Size() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	return len(c.intervals)
 }
 

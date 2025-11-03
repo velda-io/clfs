@@ -2,17 +2,20 @@ package server
 
 import (
 	"sync"
+
+	"velda.io/clfs/pkg/proto"
 )
 
+type pendingClaimCallback func(proto.ClaimStatus)
 type dentryClaimTracker struct {
 	sessions map[*session]bool
-	queue    []func()
+	queue    []pendingClaimCallback
 }
 type claimTracker struct {
 	mu       sync.Mutex
 	writer   *session
 	readers  map[*session]bool
-	queue    []func()
+	queue    []pendingClaimCallback
 	updater  claimUpdater
 	dentries map[string]*dentryClaimTracker
 }
@@ -64,19 +67,20 @@ func (t *claimTracker) AddDentryClaim(s *session, dentry string) {
 	}
 }
 
-func (t *claimTracker) Write(s *session, dentry string, callback func()) {
+func (t *claimTracker) Write(s *session, dentry string, callback pendingClaimCallback) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	noQueue := len(t.queue) == 0
 	// Currently holds the writer claim and not revoking
 	if t.writer == s {
-		callback()
+		callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 		return
 	}
 	if t.writer != nil && noQueue {
 		debugf("%p: Revoking writer %p, write from %p", t, t.writer, s)
 		t.updater.NotifyRevokeWriter(t.writer)
 	}
+	delete(t.readers, s)
 	if len(t.readers) > 0 && noQueue {
 		for reader := range t.readers {
 			t.updater.NotifyRevokeReader(reader)
@@ -88,7 +92,7 @@ func (t *claimTracker) Write(s *session, dentry string, callback func()) {
 			t.writer = s
 			s.AddWriterClaim(t)
 			t.dentries = nil
-			callback()
+			callback(proto.ClaimStatus_CLAIM_STATUS_EXCLUSIVE_WRITE_GRANTED)
 			return
 		}
 		dentryClaimed := true
@@ -111,13 +115,13 @@ func (t *claimTracker) Write(s *session, dentry string, callback func()) {
 				}
 			}
 		}
-		callback()
+		callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 		return
 	}
 	t.queue = append(t.queue, callback)
 }
 
-func (t *claimTracker) Read(s *session, callback func()) {
+func (t *claimTracker) Read(s *session, callback func(proto.ClaimStatus)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -126,7 +130,7 @@ func (t *claimTracker) Read(s *session, callback func()) {
 	if t.writer != nil {
 		if noQueue {
 			if t.writer == s {
-				callback()
+				callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 				return
 			}
 			debugf("%p: Revoking writer %p, read from %p", t, t.writer, s)
@@ -147,11 +151,14 @@ func (t *claimTracker) Read(s *session, callback func()) {
 	if _, exists := t.readers[s]; !exists {
 		if t.updater.ClaimReader(s) {
 			t.readers[s] = true
+			debugf("%p: Reader %p claimed", t, s)
 			s.AddReaderClaim(t)
 			t.dentries = nil
+			callback(proto.ClaimStatus_CLAIM_STATUS_LOCK_READ_GRANTED)
+			return
 		}
 	}
-	callback()
+	callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 }
 
 // Caller needs to remove it from session's live claims.
@@ -188,7 +195,7 @@ func (t *claimTracker) RevokedDentry(s *session, dentry string) {
 			queue := dentryClaims.queue
 			delete(t.dentries, dentry)
 			for _, callback := range queue {
-				callback()
+				callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 			}
 		}
 	} else {
@@ -200,7 +207,7 @@ func (t *claimTracker) checkQueues() {
 	if t.writer == nil && len(t.readers) == 0 {
 		debugf("%v: No active claims, processing queue", t)
 		for _, callback := range t.queue {
-			callback()
+			callback(proto.ClaimStatus_CLAIM_STATUS_UNSPECIFIED)
 		}
 		t.queue = nil
 	}

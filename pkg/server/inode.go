@@ -39,8 +39,8 @@ type HandleCallback func(*proto.OperationResponse, error)
 
 func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback HandleCallback) {
 
-	do := func() {
-		resp, err := n.handle(s, req)
+	do := func(claimUpdate proto.ClaimStatus) {
+		resp, err := n.handle(s, req, claimUpdate)
 		callback(resp, err)
 	}
 	var dentry string
@@ -59,10 +59,17 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 		return
 	// Readonly
 	case *proto.OperationRequest_Lookup:
+		readonly = true
 	case *proto.OperationRequest_GetAttr:
+		readonly = true
 	case *proto.OperationRequest_Readlink:
+		readonly = true
 	case *proto.OperationRequest_ScanDir:
+		readonly = true
 	case *proto.OperationRequest_Read:
+		readonly = true
+	case *proto.OperationRequest_Close:
+		// Should already have the claim if needed.
 		readonly = true
 
 	case *proto.OperationRequest_Mknod:
@@ -79,7 +86,6 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 		dentry = op.Create.Name
 	case *proto.OperationRequest_SetAttr:
 	case *proto.OperationRequest_Write:
-	case *proto.OperationRequest_Close:
 	case *proto.OperationRequest_Mount:
 		readonly = false
 
@@ -97,12 +103,12 @@ func (n *ServerNode) Handle(s *session, req *proto.OperationRequest, callback Ha
 }
 
 // Handle processes a single operation request for this node.
-func (n *ServerNode) handle(s *session, req *proto.OperationRequest) (*proto.OperationResponse, error) {
+func (n *ServerNode) handle(s *session, req *proto.OperationRequest, claimUpdate proto.ClaimStatus) (*proto.OperationResponse, error) {
 	switch op := req.Operation.(type) {
 	case *proto.OperationRequest_Lookup:
 		return n.Lookup(s, op.Lookup)
 	case *proto.OperationRequest_GetAttr:
-		return n.GetAttr(s, op.GetAttr)
+		return n.GetAttr(s, op.GetAttr, claimUpdate)
 	case *proto.OperationRequest_SetAttr:
 		return n.SetAttr(s, op.SetAttr)
 	case *proto.OperationRequest_Mknod:
@@ -122,7 +128,7 @@ func (n *ServerNode) handle(s *session, req *proto.OperationRequest) (*proto.Ope
 	case *proto.OperationRequest_Create:
 		return n.Create(s, op.Create)
 	case *proto.OperationRequest_Open:
-		return n.Open(s, op.Open)
+		return n.Open(s, op.Open, claimUpdate)
 	case *proto.OperationRequest_Read:
 		return n.Read(s, op.Read)
 	case *proto.OperationRequest_Write:
@@ -158,7 +164,7 @@ func (n *ServerNode) Lookup(s *session, req *proto.LookupRequest) (*proto.Operat
 	}, nil
 }
 
-func (n *ServerNode) GetAttr(s *session, req *proto.GetAttrRequest) (*proto.OperationResponse, error) {
+func (n *ServerNode) GetAttr(s *session, req *proto.GetAttrRequest, claimUpdate proto.ClaimStatus) (*proto.OperationResponse, error) {
 	var stat unix.Stat_t
 	if err := unix.Fstat(n.fd, &stat); err != nil {
 		return nil, err
@@ -166,7 +172,8 @@ func (n *ServerNode) GetAttr(s *session, req *proto.GetAttrRequest) (*proto.Oper
 	return &proto.OperationResponse{
 		Response: &proto.OperationResponse_GetAttr{
 			GetAttr: &proto.GetAttrResponse{
-				Stat: StatProtoFromSysStat(&stat),
+				Stat:        StatProtoFromSysStat(&stat),
+				ClaimUpdate: claimUpdate,
 			},
 		},
 	}, nil
@@ -232,8 +239,16 @@ func (n *ServerNode) SetAttr(s *session, req *proto.SetAttrRequest) (*proto.Oper
 	}
 	if req.Stat.Valid&FATTR_ATIME != 0 || req.Stat.Valid&FATTR_MTIME != 0 {
 		var tv [2]unix.Timeval
-		tv[0] = unix.NsecToTimeval(req.Stat.Atime.Seconds*1e9 + int64(req.Stat.Atime.Nanos))
-		tv[1] = unix.NsecToTimeval(req.Stat.Mtime.Seconds*1e9 + int64(req.Stat.Mtime.Nanos))
+		if req.Stat.Valid&FATTR_ATIME != 0 && req.Stat.Atime != nil {
+			tv[0] = unix.NsecToTimeval(req.Stat.Atime.Seconds*1e9 + int64(req.Stat.Atime.Nanos))
+		} else {
+			tv[0] = unix.NsecToTimeval(0) // Use current time if not set
+		}
+		if req.Stat.Valid&FATTR_MTIME != 0 && req.Stat.Mtime != nil {
+			tv[1] = unix.NsecToTimeval(req.Stat.Mtime.Seconds*1e9 + int64(req.Stat.Mtime.Nanos))
+		} else {
+			tv[1] = unix.NsecToTimeval(0) // Use current time if not set
+		}
 		if err := unix.Futimes(updateFd, tv[:]); err != nil {
 			return nil, err
 		}
@@ -504,7 +519,7 @@ func (n *ServerNode) Create(s *session, req *proto.CreateRequest) (*proto.Operat
 	}, nil
 }
 
-func (n *ServerNode) Open(s *session, req *proto.OpenRequest) (*proto.OperationResponse, error) {
+func (n *ServerNode) Open(s *session, req *proto.OpenRequest, claim proto.ClaimStatus) (*proto.OperationResponse, error) {
 	fd, err := unix.Open(n.fdPath(), int(req.Flags), 0)
 	if err != nil {
 		return nil, err
@@ -514,6 +529,7 @@ func (n *ServerNode) Open(s *session, req *proto.OpenRequest) (*proto.OperationR
 		Response: &proto.OperationResponse_Open{
 			Open: &proto.OpenResponse{
 				FileHandle: fh,
+				Claim:      claim,
 			},
 		},
 	}, nil
@@ -571,6 +587,7 @@ func (n *ServerNode) fdPath() string {
 }
 
 func (n *ServerNode) NotifyRevokeWriter(s *session) {
+	debugf("%p: Notifying revoke writer for session %p", n, s)
 	s.SendNotify(n, &proto.OperationResponse{
 		ServerRequest: &proto.OperationResponse_ClaimUpdate{
 			ClaimUpdate: &proto.ClaimUpdateServerRequest{
@@ -581,6 +598,7 @@ func (n *ServerNode) NotifyRevokeWriter(s *session) {
 }
 
 func (n *ServerNode) NotifyRevokeReader(s *session) {
+	debugf("%p: Notifying revoke reader for session %p", n, s)
 	s.SendNotify(n, &proto.OperationResponse{
 		ServerRequest: &proto.OperationResponse_ClaimUpdate{
 			ClaimUpdate: &proto.ClaimUpdateServerRequest{
@@ -591,6 +609,7 @@ func (n *ServerNode) NotifyRevokeReader(s *session) {
 }
 
 func (n *ServerNode) NotifyRevokeDentry(s *session, dentry string) {
+	debugf("%p: Notifying revoke dentry '%s' for session %p", n, dentry, s)
 	s.SendNotify(n, &proto.OperationResponse{
 		ServerRequest: &proto.OperationResponse_DentryInvalidation{
 			DentryInvalidation: &proto.DentryInvalidationServerRequest{
@@ -603,9 +622,9 @@ func (n *ServerNode) NotifyRevokeDentry(s *session, dentry string) {
 }
 
 func (n *ServerNode) ClaimWriter(s *session) bool {
-	return false
+	return true
 }
 
 func (n *ServerNode) ClaimReader(s *session) bool {
-	return false
+	return true
 }
